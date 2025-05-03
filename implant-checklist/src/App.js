@@ -3,6 +3,12 @@ import Papa from "papaparse";
 import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function ImplantChecklistApp() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+  const PASSWORD = "srrOrthOSat";
+  const EMAIL = "srrorthoplus999@gmail.com";
+
   const [procedures, setProcedures] = useState([]);
   const [activeProcedures, setActiveProcedures] = useState([]);
   const [selectedItems, setSelectedItems] = useState({});
@@ -147,6 +153,77 @@ export default function ImplantChecklistApp() {
   const filteredProcedures = procedures.filter((procedure) =>
     procedure.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (!authenticated) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#f3f4f6"
+      }}>
+        <div style={{
+          background: "white",
+          padding: 32,
+          borderRadius: 8,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+          minWidth: 320,
+          width: 340
+        }}>
+          <h2 style={{ marginBottom: 16 }}>Enter Email & Password</h2>
+          <input
+            type="email"
+            value={emailInput}
+            onChange={e => setEmailInput(e.target.value)}
+            style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }}
+            placeholder="Email"
+            autoComplete="username"
+            onKeyDown={e => {
+              if (e.key === "Enter" && emailInput === EMAIL && passwordInput === PASSWORD) {
+                setAuthenticated(true);
+              }
+            }}
+          />
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={e => setPasswordInput(e.target.value)}
+            style={{ width: "100%", padding: 8, marginBottom: 16, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }}
+            placeholder="Password"
+            autoComplete="current-password"
+            onKeyDown={e => {
+              if (e.key === "Enter" && emailInput === EMAIL && passwordInput === PASSWORD) {
+                setAuthenticated(true);
+              }
+            }}
+          />
+          <button
+            onClick={() => {
+              if (emailInput === EMAIL && passwordInput === PASSWORD) {
+                setAuthenticated(true);
+              } else {
+                alert("Incorrect email or password");
+              }
+            }}
+            style={{
+              width: "100%",
+              padding: 10,
+              background: "#2563eb",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+              fontWeight: 500,
+              fontSize: 16,
+              boxSizing: "border-box"
+            }}
+          >
+            Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
