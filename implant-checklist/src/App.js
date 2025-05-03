@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import Fuse from "fuse.js";
 
 export default function ImplantChecklistApp() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -17,6 +18,7 @@ export default function ImplantChecklistApp() {
   const [dcNo, setDcNo] = useState("");
   const [showDcNoModal, setShowDcNoModal] = useState(false);
   const printRef = useRef();
+  const [showProcedures, setShowProcedures] = useState(false);
 
   useEffect(() => {
     fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
@@ -150,9 +152,16 @@ export default function ImplantChecklistApp() {
     return text.toUpperCase().replace(/\s+/g, " ").trim();
   };
 
-  const filteredProcedures = procedures.filter((procedure) =>
-    procedure.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Fuzzy search for procedures
+  const fuse = new Fuse(procedures, {
+    keys: ['name'],
+    threshold: 0.4, // Lower = stricter, higher = more forgiving
+  });
+
+  const filteredProcedures =
+    searchQuery.trim() === ""
+      ? procedures
+      : fuse.search(searchQuery).map(result => result.item);
 
   if (!authenticated) {
     return (
@@ -269,25 +278,36 @@ export default function ImplantChecklistApp() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-        {filteredProcedures.map((procedure) => (
-          <button
-            key={procedure.name}
-            onClick={() => toggleProcedure(procedure)}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 6,
-              border: activeProcedures.some((p) => p.name === procedure.name) ? "2px solid #2563eb" : "1px solid #ccc",
-              background: activeProcedures.some((p) => p.name === procedure.name) ? "#2563eb" : "white",
-              color: activeProcedures.some((p) => p.name === procedure.name) ? "white" : "#222",
-              fontWeight: 500,
-              cursor: "pointer"
-            }}
-          >
-            {procedure.name}
-          </button>
-        ))}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+        <button
+          onClick={() => setShowProcedures((prev) => !prev)}
+          style={{ padding: "10px 24px", borderRadius: 6, background: "#2563eb", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}
+        >
+          {showProcedures ? "Hide Procedures" : "Show All Procedures"}
+        </button>
       </div>
+
+      {(showProcedures || searchQuery.trim() !== "") && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          {filteredProcedures.map((procedure) => (
+            <button
+              key={procedure.name}
+              onClick={() => toggleProcedure(procedure)}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 6,
+                border: activeProcedures.some((p) => p.name === procedure.name) ? "2px solid #2563eb" : "1px solid #ccc",
+                background: activeProcedures.some((p) => p.name === procedure.name) ? "#2563eb" : "white",
+                color: activeProcedures.some((p) => p.name === procedure.name) ? "white" : "#222",
+                fontWeight: 500,
+                cursor: "pointer"
+              }}
+            >
+              {procedure.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {activeProcedures.map((procedure) => (
         <div key={procedure.name} style={{ marginTop: 24, border: "1px solid #eee", borderRadius: 8, background: "#fafbfc" }}>
