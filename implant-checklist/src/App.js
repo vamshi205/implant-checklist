@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import Fuse from "fuse.js";
+import html2pdf from "html2pdf.js";
 
 export default function ImplantChecklistApp() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -20,6 +21,10 @@ export default function ImplantChecklistApp() {
   const printRef = useRef();
   const [showProcedures, setShowProcedures] = useState(false);
   const [newInstrumentInputs, setNewInstrumentInputs] = useState({});
+  const [fixedQtyEdits, setFixedQtyEdits] = useState({});
+  const [hospitalName, setHospitalName] = useState("");
+  const [showHospitalModal, setShowHospitalModal] = useState(false);
+  const [pendingPDF, setPendingPDF] = useState(false);
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -30,11 +35,22 @@ export default function ImplantChecklistApp() {
           header: false,
           skipEmptyLines: true,
           complete: (results) => {
-            const parsedProcedures = results.data.map(([name, items, instruments]) => ({
-              name: name.trim(),
-              items: items.split(',').map(item => item.trim()),
-              instruments: instruments ? instruments.split(',').map(inst => inst.trim()).filter(Boolean) : [],
-            }));
+            const parsedProcedures = results.data.map(([name, items, fixedItems, fixedQty, instruments]) => {
+              // Parse fixed items and qtys strictly by &k only
+              const fixedItemsArr = fixedItems ? fixedItems.split('&k').map(s => s.trim()).filter(Boolean) : [];
+              const fixedQtyArr = fixedQty ? fixedQty.split('&k').map(s => s.trim()).filter(Boolean) : [];
+              const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
+              // Parse editable items (from Items column only, comma-separated)
+              const editableItems = items
+                ? items.split(',').map(item => item.trim()).filter(Boolean)
+                : [];
+              return {
+                name: name.trim(),
+                items: editableItems,
+                fixedList,
+                instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+              };
+            });
             setProcedures(parsedProcedures);
             setActiveProcedures([]); // Optionally clear active procedures on refetch
           }
@@ -51,6 +67,7 @@ export default function ImplantChecklistApp() {
       setActiveProcedures((prev) => prev.filter((p) => p.name !== procedure.name));
     } else {
       setActiveProcedures((prev) => [...prev, procedure]);
+      setCollapsedProcedures((prev) => ({ ...prev, [procedure.name]: false }));
     }
   };
 
@@ -128,38 +145,39 @@ export default function ImplantChecklistApp() {
     printWindow.document.write("<table style='width:100%'><tr><th>Sl No</th><th>Description</th><th>Qty</th></tr>");
 
     let serial = 1;
-    Object.keys(selectedItems).forEach((key) => {
-      const [procedureName, item] = key.split("__");
-      if (!selectedItems[key] || selectedItems[key].length === 0) return;
-      const sizeDetails = selectedItems[key].map((entry) => `${entry.size}-${entry.qty}`).join(", ");
-      const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
-      printWindow.document.write(`
-        <tr>
-          <td>${serial++}</td>
-          <td>${item} ${sizeDetails}</td>
-          <td>${totalQty}</td>
-        </tr>
-      `);
+    // Print fixed items first
+    const selectedProcedureNames = Array.from(new Set(Object.keys(selectedItems).map(key => key.split("__")[0])));
+    selectedProcedureNames.forEach(procName => {
+      const proc = procedures.find(p => p.name === procName);
+      if (proc && proc.fixedList && proc.fixedList.length > 0) {
+        proc.fixedList.forEach(fixed => {
+          printWindow.document.write(`
+            <tr>
+              <td>${serial++}</td>
+              <td>${fixed.name}</td>
+              <td>${fixed.qty}</td>
+            </tr>
+          `);
+        });
+      }
     });
 
-    // Add Instruments header row
-    printWindow.document.write(`<tr><th colspan='3' style='text-align:center;background:#e0e7ff;'>Instruments</th></tr>`);
-
     // Collect all instruments from selected procedures (no duplicates)
-    const selectedProcedureNames = Array.from(new Set(Object.keys(selectedItems).map(key => key.split("__")[0])));
-    let allInstruments = [];
     selectedProcedureNames.forEach(procName => {
       const proc = procedures.find(p => p.name === procName);
       if (proc && proc.instruments && proc.instruments.length > 0) {
-        allInstruments = allInstruments.concat(proc.instruments);
+        printWindow.document.write(`
+          <tr><th colspan='3' style='text-align:center;background:#e0e7ff;'>Instruments</th></tr>
+        `);
+        printWindow.document.write(`
+          <tr>
+            <td>${serial++}</td>
+            <td>${proc.instruments.join(', ')}</td>
+            <td></td>
+          </tr>
+        `);
       }
     });
-    // Remove duplicates
-    allInstruments = Array.from(new Set(allInstruments));
-    // List all instruments in a single row, comma-separated, with serial number, empty qty
-    if (allInstruments.length > 0) {
-      printWindow.document.write(`<tr><td>${serial++}</td><td>${allInstruments.join(", ")}</td><td></td></tr>`);
-    }
 
     printWindow.document.write("</table>");
 
@@ -219,7 +237,7 @@ export default function ImplantChecklistApp() {
           complete: (results) => {
             const found = results.data.find(([name]) => name && name.trim() === procedureName);
             if (found) {
-              const instruments = found[2] ? found[2].split(',').map(inst => inst.trim()).filter(Boolean) : [];
+              const instruments = found[4] ? found[4].split('|').map(inst => inst.trim()).filter(Boolean) : [];
               setProcedures(prev => prev.map(proc =>
                 proc.name === procedureName ? { ...proc, instruments } : proc
               ));
@@ -252,6 +270,57 @@ export default function ImplantChecklistApp() {
         : proc
     ));
     setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: '' }));
+  };
+
+  // Handler for fixed item qty change
+  const handleFixedQtyChange = (procedureName, itemName, value) => {
+    setFixedQtyEdits(prev => ({
+      ...prev,
+      [`${procedureName}__${itemName}`]: value
+    }));
+    // Also update in procedures/activeProcedures for print
+    setProcedures(prev => prev.map(proc =>
+      proc.name === procedureName
+        ? {
+            ...proc,
+            fixedList: proc.fixedList.map(fixed =>
+              fixed.name === itemName ? { ...fixed, qty: value } : fixed
+            )
+          }
+        : proc
+    ));
+    setActiveProcedures(prev => prev.map(proc =>
+      proc.name === procedureName
+        ? {
+            ...proc,
+            fixedList: proc.fixedList.map(fixed =>
+              fixed.name === itemName ? { ...fixed, qty: value } : fixed
+            )
+          }
+        : proc
+    ));
+  };
+
+  // Handler to save summary as PDF
+  const handleSavePDF = () => {
+    setShowHospitalModal(true);
+    setPendingPDF(true);
+  };
+
+  // Actually generate PDF after hospital name is entered
+  const doSavePDF = () => {
+    setShowHospitalModal(false);
+    setPendingPDF(false);
+    setTimeout(() => {
+      if (printRef.current) {
+        html2pdf().set({
+          margin: 0.5,
+          filename: `SRR-Ortho-Implant-DC-${dcNo || 'Summary'}.pdf`,
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+        }).from(printRef.current).save();
+      }
+    }, 200); // Give modal time to close
   };
 
   if (!authenticated) {
@@ -390,12 +459,22 @@ export default function ImplantChecklistApp() {
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 28, fontWeight: "bold" }}>Ortho Implant Checklist</h1>
+        <h1 style={{ fontSize: 28, fontWeight: "bold" }}>SRR Ortho Implant DC Generator</h1>
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
         <input
-          placeholder="Enter DC No"
+          className="responsive-input"
+          placeholder="Hospital Name"
+          value={hospitalName}
+          onChange={e => setHospitalName(e.target.value)}
+          style={{ width: 220, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+        />
+        <input
+          className="responsive-input"
+          placeholder="DC No"
           value={dcNo}
-          onChange={(e) => setDcNo(e.target.value)}
-          style={{ width: 200, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+          onChange={e => setDcNo(e.target.value)}
+          style={{ width: 160, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
         />
       </div>
 
@@ -445,12 +524,52 @@ export default function ImplantChecklistApp() {
           <div style={{ padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ fontSize: 20, fontWeight: 600 }}>{procedure.name} Items</h2>
-              <button onClick={() => toggleCollapse(procedure.name)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button onClick={() => toggleCollapse(procedure.name)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                  {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
+                </button>
+                <button
+                  onClick={() => {
+                    // Remove all selected items for this procedure
+                    setSelectedItems(prev => {
+                      const updated = { ...prev };
+                      Object.keys(updated).forEach(key => {
+                        if (key.startsWith(procedure.name + "__")) {
+                          delete updated[key];
+                        }
+                      });
+                      return updated;
+                    });
+                    // Remove from activeProcedures
+                    setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', marginLeft: 4 }}
+                  title={`Delete ${procedure.name}`}
+                >
+                  <Trash2 style={{ width: 20, height: 20 }} />
+                </button>
+              </div>
             </div>
             {!collapsedProcedures[procedure.name] &&
               <>
+                {/* Fixed items (read-only) */}
+                {procedure.fixedList && procedure.fixedList.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    {procedure.fixedList.map((fixed, idx) => (
+                      <div key={fixed.name + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <input type="checkbox" checked readOnly disabled style={{ accentColor: '#000' }} />
+                        <span>{fixed.name}</span>
+                        <input
+                          type="number"
+                          value={fixedQtyEdits[`${procedure.name}__${fixed.name}`] ?? fixed.qty}
+                          onChange={e => handleFixedQtyChange(procedure.name, fixed.name, e.target.value)}
+                          style={{ width: 60, padding: 6, border: '1px solid #ccc', borderRadius: 4, background: '#fff', color: '#222' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Editable items (old logic) */}
                 {procedure.items.map((item) => {
                   const key = `${procedure.name}__${item}`;
                   return (
@@ -578,12 +697,48 @@ export default function ImplantChecklistApp() {
 
       <div style={{ marginTop: 32, display: "flex", gap: 16 }}>
         <button onClick={handlePrint} style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}> Print</button>
+        <button onClick={handleSavePDF} style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Save as PDF</button>
         <button onClick={handleClearAll} style={{ padding: "10px 24px", borderRadius: 6, background: "#ef4444", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Clear All</button>
       </div>
 
+      {showHospitalModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div className="responsive-modal" style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%", minWidth: 0 }}>
+            <h2 style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}>Enter Hospital Name</h2>
+            <input
+              className="responsive-input"
+              placeholder="Hospital Name"
+              value={hospitalName}
+              onChange={e => setHospitalName(e.target.value)}
+              style={{ marginBottom: 16, width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setShowHospitalModal(false)} style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ccc", background: "white" }}>Cancel</button>
+              <button onClick={doSavePDF} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim()}>Save PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div ref={printRef} className="hidden-print responsive-table" style={{ marginTop: 24, padding: 16, border: "1px solid #eee", borderRadius: 8, background: "white" }}>
+        {/* Hospital Name and DC No at the top */}
+        {hospitalName && (
+          <div style={{ textAlign: 'right', fontWeight: 600, marginBottom: 4 }}>
+            <span>Hospital: {hospitalName}</span>
+          </div>
+        )}
+        <div style={{ textAlign: 'right', fontWeight: 600, marginBottom: 8 }}>
+          <span>DC No: {dcNo}</span>
+        </div>
         <h2 style={{ fontSize: 18, fontWeight: "bold", marginBottom: 8 }}>SUMMARY</h2>
         <ol style={{ paddingLeft: 20 }}>
+          {activeProcedures.map(proc => (
+            proc.fixedList && proc.fixedList.length > 0 && proc.fixedList.map((fixed, idx) => (
+              <li key={proc.name + fixed.name + idx} style={{ marginBottom: 4 }}>
+                {formatText(fixed.name)}: {fixedQtyEdits[`${proc.name}__${fixed.name}`] ?? fixed.qty}
+              </li>
+            ))
+          ))}
           {Object.keys(selectedItems).map((key) => {
             const [procedureName, item] = key.split("__");
             if (!selectedItems[key] || selectedItems[key].length === 0) return null;
@@ -596,17 +751,13 @@ export default function ImplantChecklistApp() {
         </ol>
         {/* Instruments summary for each selected procedure */}
         <div style={{ marginTop: 12 }}>
-          {Array.from(new Set(Object.keys(selectedItems).map(key => key.split("__")[0]))).map(procName => {
-            const proc = procedures.find(p => p.name === procName);
-            if (proc && proc.instruments && proc.instruments.length > 0) {
-              return (
-                <div key={procName} style={{ color: "#555", fontStyle: "italic", marginBottom: 4 }}>
-                  <strong>Instruments for {proc.name}:</strong> {proc.instruments.join(", ")} (qty 1 each)
-                </div>
-              );
-            }
-            return null;
-          })}
+          {activeProcedures.map(proc => (
+            proc.instruments && proc.instruments.length > 0 ? (
+              <div key={proc.name} style={{ color: "#555", fontStyle: "italic", marginBottom: 4 }}>
+                <strong>Instruments for {proc.name}:</strong> {proc.instruments.join(", ")} (qty 1 each)
+              </div>
+            ) : null
+          ))}
         </div>
       </div>
     </div>
