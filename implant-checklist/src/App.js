@@ -19,8 +19,10 @@ export default function ImplantChecklistApp() {
   const [showDcNoModal, setShowDcNoModal] = useState(false);
   const printRef = useRef();
   const [showProcedures, setShowProcedures] = useState(false);
+  const [newInstrumentInputs, setNewInstrumentInputs] = useState({});
 
-  useEffect(() => {
+  // Fetch procedures from Google Sheet
+  const fetchProcedures = () => {
     fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
       .then(response => response.text())
       .then(csvText => {
@@ -28,14 +30,20 @@ export default function ImplantChecklistApp() {
           header: false,
           skipEmptyLines: true,
           complete: (results) => {
-            const parsedProcedures = results.data.map(([name, items]) => ({
+            const parsedProcedures = results.data.map(([name, items, instruments]) => ({
               name: name.trim(),
-              items: items.split(',').map(item => item.trim())
+              items: items.split(',').map(item => item.trim()),
+              instruments: instruments ? instruments.split(',').map(inst => inst.trim()).filter(Boolean) : [],
             }));
             setProcedures(parsedProcedures);
+            setActiveProcedures([]); // Optionally clear active procedures on refetch
           }
         });
       });
+  };
+
+  useEffect(() => {
+    fetchProcedures();
   }, []);
 
   const toggleProcedure = (procedure) => {
@@ -116,7 +124,7 @@ export default function ImplantChecklistApp() {
     printWindow.document.write("</head><body>");
 
     printWindow.document.write(`<div style='text-align:right'><strong>DC No:</strong> ${dcNo}</div>`);
-    printWindow.document.write(`<h2>SUMMARY</h2>`);
+    printWindow.document.write(`<div style='height: 24px'></div>`);
     printWindow.document.write("<table style='width:100%'><tr><th>Sl No</th><th>Description</th><th>Qty</th></tr>");
 
     let serial = 1;
@@ -133,6 +141,25 @@ export default function ImplantChecklistApp() {
         </tr>
       `);
     });
+
+    // Add Instruments header row
+    printWindow.document.write(`<tr><th colspan='3' style='text-align:center;background:#e0e7ff;'>Instruments</th></tr>`);
+
+    // Collect all instruments from selected procedures (no duplicates)
+    const selectedProcedureNames = Array.from(new Set(Object.keys(selectedItems).map(key => key.split("__")[0])));
+    let allInstruments = [];
+    selectedProcedureNames.forEach(procName => {
+      const proc = procedures.find(p => p.name === procName);
+      if (proc && proc.instruments && proc.instruments.length > 0) {
+        allInstruments = allInstruments.concat(proc.instruments);
+      }
+    });
+    // Remove duplicates
+    allInstruments = Array.from(new Set(allInstruments));
+    // List all instruments in a single row, comma-separated, with serial number, empty qty
+    if (allInstruments.length > 0) {
+      printWindow.document.write(`<tr><td>${serial++}</td><td>${allInstruments.join(", ")}</td><td></td></tr>`);
+    }
 
     printWindow.document.write("</table>");
 
@@ -162,6 +189,70 @@ export default function ImplantChecklistApp() {
     searchQuery.trim() === ""
       ? procedures
       : fuse.search(searchQuery).map(result => result.item);
+
+  // Add a handler to remove an instrument from a procedure
+  const handleRemoveInstrument = (procedureName, instrument) => {
+    setProcedures(prev =>
+      prev.map(proc =>
+        proc.name === procedureName
+          ? { ...proc, instruments: proc.instruments.filter(inst => inst !== instrument) }
+          : proc
+      )
+    );
+    setActiveProcedures(prev =>
+      prev.map(proc =>
+        proc.name === procedureName
+          ? { ...proc, instruments: proc.instruments.filter(inst => inst !== instrument) }
+          : proc
+      )
+    );
+  };
+
+  // Refetch instruments for a single procedure from the sheet
+  const refetchProcedureInstruments = (procedureName) => {
+    fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
+      .then(response => response.text())
+      .then(csvText => {
+        Papa.parse(csvText, {
+          header: false,
+          skipEmptyLines: true,
+          complete: (results) => {
+            const found = results.data.find(([name]) => name && name.trim() === procedureName);
+            if (found) {
+              const instruments = found[2] ? found[2].split(',').map(inst => inst.trim()).filter(Boolean) : [];
+              setProcedures(prev => prev.map(proc =>
+                proc.name === procedureName ? { ...proc, instruments } : proc
+              ));
+              setActiveProcedures(prev => prev.map(proc =>
+                proc.name === procedureName ? { ...proc, instruments } : proc
+              ));
+            }
+          }
+        });
+      });
+  };
+
+  // Handler for input change
+  const handleNewInstrumentInputChange = (procedureName, value) => {
+    setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: value }));
+  };
+
+  // Handler to add a new instrument
+  const handleAddInstrument = (procedureName) => {
+    const value = (newInstrumentInputs[procedureName] || '').trim();
+    if (!value) return;
+    setProcedures(prev => prev.map(proc =>
+      proc.name === procedureName && !proc.instruments.includes(value)
+        ? { ...proc, instruments: [...proc.instruments, value] }
+        : proc
+    ));
+    setActiveProcedures(prev => prev.map(proc =>
+      proc.name === procedureName && !proc.instruments.includes(value)
+        ? { ...proc, instruments: [...proc.instruments, value] }
+        : proc
+    ));
+    setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: '' }));
+  };
 
   if (!authenticated) {
     return (
@@ -235,12 +326,51 @@ export default function ImplantChecklistApp() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+    <div className="main-container" style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+      {/* Responsive styles */}
+      <style>{`
+        @media (max-width: 900px) {
+          .procedure-grid {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+          }
+        }
+        @media (max-width: 600px) {
+          .main-container {
+            padding: 8px !important;
+          }
+          .procedure-grid {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+          }
+          .responsive-row {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .responsive-btn, .responsive-input {
+            width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+          }
+          .responsive-modal {
+            max-width: 340px !important;
+            width: 96vw !important;
+            padding: 6px 6px 16px 6px !important;
+            min-width: 0 !important;
+          }
+          .responsive-table {
+            display: block !important;
+            overflow-x: auto !important;
+            width: 100% !important;
+          }
+        }
+      `}</style>
+      {/* End responsive styles */}
       {showDcNoModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-          <div style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%" }}>
+          <div className="responsive-modal" style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%", minWidth: 0 }}>
             <h2 style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}>Enter DC No</h2>
             <input
+              className="responsive-input"
               placeholder="DC No"
               value={dcNo}
               onChange={(e) => setDcNo(e.target.value)}
@@ -278,17 +408,18 @@ export default function ImplantChecklistApp() {
         />
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
         <button
+          className="responsive-btn"
           onClick={() => setShowProcedures((prev) => !prev)}
-          style={{ padding: "10px 24px", borderRadius: 6, background: "#2563eb", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}
+          style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}
         >
           {showProcedures ? "Hide Procedures" : "Show All Procedures"}
         </button>
       </div>
 
       {(showProcedures || searchQuery.trim() !== "") && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        <div className="procedure-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
           {filteredProcedures.map((procedure) => (
             <button
               key={procedure.name}
@@ -319,68 +450,138 @@ export default function ImplantChecklistApp() {
               </button>
             </div>
             {!collapsedProcedures[procedure.name] &&
-              procedure.items.map((item) => {
-                const key = `${procedure.name}__${item}`;
-                return (
-                  <div key={item} style={{ margin: "12px 0" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={key in selectedItems}
-                        onChange={() => handleItemChange(procedure.name, item)}
-                      />
-                      <span>{item}</span>
-                      {key in selectedItems && selectedItems[key].length === 0 && (
-                        <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
-                          + Add Size
-                        </button>
-                      )}
-                    </div>
-                    {selectedItems[key]?.length > 0 &&
-                      selectedItems[key].map((entry, index) => (
-                        <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 32, marginTop: 4 }}>
-                          <input
-                            placeholder="Size"
-                            value={entry.size}
-                            onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
-                            style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                          />
-                          <input
-                            placeholder="Qty"
-                            type="number"
-                            value={entry.qty}
-                            onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
-                            style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                          />
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <button
-                              style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
-                              onClick={() => handleAddSizeQty(key)}
-                            >
-                              +
-                            </button>
-                            <button
-                              style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
-                              onClick={() => handleDeleteSizeQty(key, index)}
-                            >
-                              <Trash2 style={{ width: 16, height: 16 }} />
-                            </button>
+              <>
+                {procedure.items.map((item) => {
+                  const key = `${procedure.name}__${item}`;
+                  return (
+                    <div key={item} style={{ margin: "12px 0" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={key in selectedItems}
+                          onChange={() => handleItemChange(procedure.name, item)}
+                        />
+                        <span>{item}</span>
+                        {key in selectedItems && selectedItems[key].length === 0 && (
+                          <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
+                            + Add Size
+                          </button>
+                        )}
+                      </div>
+                      {selectedItems[key]?.length > 0 &&
+                        selectedItems[key].map((entry, index) => (
+                          <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 32, marginTop: 4 }}>
+                            <input
+                              placeholder="Size"
+                              value={entry.size}
+                              onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
+                              style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                            />
+                            <input
+                              placeholder="Qty"
+                              type="number"
+                              value={entry.qty}
+                              onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
+                              style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                            />
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button
+                                style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
+                                onClick={() => handleAddSizeQty(key)}
+                              >
+                                +
+                              </button>
+                              <button
+                                style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
+                                onClick={() => handleDeleteSizeQty(key, index)}
+                              >
+                                <Trash2 style={{ width: 16, height: 16 }} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        ))}
+                    </div>
+                  );
+                })}
+                {/* Instruments section after items */}
+                {procedure.instruments && procedure.instruments.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', fontWeight: 600, marginBottom: 4 }}>
+                      <span>Instruments</span>
+                      <button
+                        onClick={() => refetchProcedureInstruments(procedure.name)}
+                        style={{
+                          marginLeft: 8,
+                          background: 'none',
+                          border: 'none',
+                          color: '#000',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          fontSize: 16,
+                          lineHeight: 1
+                        }}
+                        title="Refetch instruments from sheet"
+                      >
+                        ↻
+                      </button>
+                    </div>
+                    <div style={{ color: "#555", fontStyle: "italic", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {procedure.instruments.map((inst, idx) => (
+                        <span key={inst + idx} style={{ display: "flex", alignItems: "center", background: "#e0e7ff", borderRadius: 4, padding: "2px 8px", marginRight: 4, marginBottom: 4 }}>
+                          {inst}
+                          <button
+                            onClick={() => handleRemoveInstrument(procedure.name, inst)}
+                            style={{
+                              marginLeft: 6,
+                              background: "none",
+                              border: "none",
+                              color: "#ef4444",
+                              fontWeight: "bold",
+                              cursor: "pointer",
+                              fontSize: 14,
+                              lineHeight: 1
+                            }}
+                            title="Remove instrument"
+                          >
+                            ×
+                          </button>
+                        </span>
                       ))}
+                    </div>
+                    {/* Add new instrument input */}
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                      <input
+                        type="text"
+                        placeholder="Add instrument"
+                        value={newInstrumentInputs[procedure.name] || ''}
+                        onChange={e => handleNewInstrumentInputChange(procedure.name, e.target.value)}
+                        style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleAddInstrument(procedure.name);
+                        }}
+                      />
+                      <button
+                        onClick={() => handleAddInstrument(procedure.name)}
+                        style={{ padding: '6px 16px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}
+                        disabled={!(newInstrumentInputs[procedure.name] || '').trim() || (procedure.instruments || []).includes((newInstrumentInputs[procedure.name] || '').trim())}
+                      >
+                        Add
+                      </button>
+                    </div>
                   </div>
-                );
-              })}
+                )}
+              </>
+            }
           </div>
         </div>
       ))}
 
       <div style={{ marginTop: 32, display: "flex", gap: 16 }}>
-        <button onClick={handlePrint} style={{ padding: "10px 24px", borderRadius: 6, background: "#2563eb", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Just Print</button>
+        <button onClick={handlePrint} style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}> Print</button>
         <button onClick={handleClearAll} style={{ padding: "10px 24px", borderRadius: 6, background: "#ef4444", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Clear All</button>
       </div>
 
-      <div ref={printRef} className="hidden-print" style={{ marginTop: 24, padding: 16, border: "1px solid #eee", borderRadius: 8, background: "white" }}>
+      <div ref={printRef} className="hidden-print responsive-table" style={{ marginTop: 24, padding: 16, border: "1px solid #eee", borderRadius: 8, background: "white" }}>
         <h2 style={{ fontSize: 18, fontWeight: "bold", marginBottom: 8 }}>SUMMARY</h2>
         <ol style={{ paddingLeft: 20 }}>
           {Object.keys(selectedItems).map((key) => {
@@ -393,6 +594,20 @@ export default function ImplantChecklistApp() {
             );
           })}
         </ol>
+        {/* Instruments summary for each selected procedure */}
+        <div style={{ marginTop: 12 }}>
+          {Array.from(new Set(Object.keys(selectedItems).map(key => key.split("__")[0]))).map(procName => {
+            const proc = procedures.find(p => p.name === procName);
+            if (proc && proc.instruments && proc.instruments.length > 0) {
+              return (
+                <div key={procName} style={{ color: "#555", fontStyle: "italic", marginBottom: 4 }}>
+                  <strong>Instruments for {proc.name}:</strong> {proc.instruments.join(", ")} (qty 1 each)
+                </div>
+              );
+            }
+            return null;
+          })}
+        </div>
       </div>
     </div>
   );
