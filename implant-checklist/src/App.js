@@ -763,9 +763,10 @@ export default function ImplantChecklistApp() {
                   const sizeQtys = selectedItems[key]
                     .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                     .join(', ');
+                  const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                   lines.push(
                     <div key={proc.name + '-' + item}>
-                      {item} {sizeQtys}
+                      {item} {sizeQtys} <b>(Total: {totalQty})</b>
                     </div>
                   );
                   hasItems = true;
@@ -903,11 +904,12 @@ export default function ImplantChecklistApp() {
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
+                          const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                           rows.push(
                             <tr key={proc.name + '-' + item}>
                               <td>{serial++}</td>
                               <td>{item} {sizeQtys}</td>
-                              <td></td>
+                              <td>{totalQty}</td>
                             </tr>
                           );
                         }
