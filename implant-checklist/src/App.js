@@ -120,6 +120,7 @@ export default function ImplantChecklistApp() {
 
   const handleClearAll = () => {
     setSelectedItems({});
+    setActiveProcedures([]);
   };
 
   const handlePrint = () => {
@@ -240,24 +241,25 @@ export default function ImplantChecklistApp() {
 
   // Handler to save summary as PDF
   const handleSavePDF = () => {
-    setShowHospitalModal(true);
-    setPendingPDF(true);
+    if (!hospitalName.trim() || !dcNo.trim()) {
+      setShowHospitalModal(true);
+      setPendingPDF(true);
+    } else {
+      doSavePDF();
+    }
   };
 
   // Actually generate PDF after hospital name is entered
   const doSavePDF = () => {
-    setShowHospitalModal(false);
-    setPendingPDF(false);
-    setTimeout(() => {
-      if (printRef.current) {
-        html2pdf().set({
-          margin: 0.5,
-          filename: `SRR-Ortho-Implant-DC-${dcNo || 'Summary'}.pdf`,
-          html2canvas: { scale: 2 },
-          jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-        }).from(printRef.current).save();
-      }
-    }, 200); // Give modal time to close
+    if (printRef.current) {
+      const options = {
+        margin: 0.5,
+        filename: `SRR-Ortho-Implant-DC-${dcNo || 'Summary'}.pdf`,
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+      };
+      html2pdf().set(options).from(printRef.current).save();
+    }
   };
 
   if (!authenticated) {
@@ -655,25 +657,94 @@ export default function ImplantChecklistApp() {
           >
             <span role="img" aria-label="Print">🖨️</span> Print
           </button>
-          <button onClick={handleSavePDF} style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Save as PDF</button>
+          <button
+            onClick={handleSavePDF}
+            style={{
+              padding: "10px 24px",
+              borderRadius: 6,
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              fontWeight: 500,
+              fontSize: 16,
+              cursor: "pointer"
+            }}
+          >
+            Download PDF
+          </button>
           <button onClick={handleClearAll} style={{ padding: "10px 24px", borderRadius: 6, background: "#ef4444", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Clear All</button>
+        </div>
+      )}
+
+      {activeProcedures.length > 0 && (
+        <div style={{ marginTop: 24, background: '#f8fafc', borderRadius: 8, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ fontWeight: 600, marginBottom: 12 }}>Summary</h3>
+          <div>
+            {activeProcedures.map(proc => {
+              const lines = [];
+              let hasItems = false;
+              // Fixed items
+              if (proc.fixedList && proc.fixedList.length > 0) {
+                proc.fixedList.forEach(fixed => {
+                  lines.push(
+                    <div key={proc.name + '-fixed-' + fixed.name}>
+                      {fixed.name} - {fixed.qty}
+                    </div>
+                  );
+                  hasItems = true;
+                });
+              }
+              // Editable items
+              proc.items.forEach(item => {
+                const key = `${proc.name}__${item}`;
+                if (selectedItems[key] && selectedItems[key].length > 0) {
+                  selectedItems[key].forEach((entry, eidx) => {
+                    lines.push(
+                      <div key={proc.name + '-' + item + '-' + eidx}>
+                        {item}{entry.size ? ` (${entry.size})` : ''} - {entry.qty}
+                      </div>
+                    );
+                    hasItems = true;
+                  });
+                }
+              });
+              // Instruments
+              const instrumentLines = (proc.instruments && proc.instruments.length > 0)
+                ? <div style={{ marginTop: 6, fontStyle: 'italic', color: '#444' }}>Instruments: {proc.instruments.join(', ')}</div>
+                : null;
+              return (
+                <div key={proc.name} style={{ marginBottom: 18 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{proc.name}</div>
+                  {hasItems ? lines : <div style={{ color: '#888' }}>No items selected.</div>}
+                  {instrumentLines}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {showHospitalModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
           <div className="responsive-modal" style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%", minWidth: 0 }}>
-            <h2 style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}>Enter Hospital Name</h2>
+            <h2 style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}>Enter Hospital Name & DC No</h2>
             <input
               className="responsive-input"
               placeholder="Hospital Name"
               value={hospitalName}
               onChange={e => setHospitalName(e.target.value)}
+              style={{ marginBottom: 12, width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+            />
+            <input
+              className="responsive-input"
+              placeholder="DC No"
+              value={dcNo}
+              onChange={e => setDcNo(e.target.value)}
               style={{ marginBottom: 16, width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
             />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={() => setShowHospitalModal(false)} style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ccc", background: "white" }}>Cancel</button>
-              <button onClick={doSavePDF} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim()}>Save PDF</button>
+              <button onClick={() => { setShowHospitalModal(false); setShowPrintPreview(true); }} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim() || !dcNo.trim()}>Continue</button>
             </div>
           </div>
         </div>
@@ -685,6 +756,7 @@ export default function ImplantChecklistApp() {
           <div style={{ background: 'white', borderRadius: 8, maxWidth: 900, width: '98vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
             <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 16 }}>SUMMARY</h2>
             <div id="print-preview-content" ref={printRef}>
+           
               {/* Print-specific styles for table borders and full-page print */}
               <style>{`
                 #print-preview-content table, #print-preview-content th, #print-preview-content td {
@@ -746,9 +818,7 @@ export default function ImplantChecklistApp() {
                       // Procedure heading
                       rows.push(
                         <tr key={proc.name + '-heading'}>
-                          <td></td>
-                          <td style={{ background: '#f1f5f9', fontWeight: 'bold' }}>{proc.name} Implants</td>
-                          <td></td>
+                          <td colSpan={3} style={{ background: '#f1f5f9', fontWeight: 'bold' }}>{proc.name}</td>
                         </tr>
                       );
                       // Fixed items
@@ -782,16 +852,13 @@ export default function ImplantChecklistApp() {
                       if (proc.instruments && proc.instruments.length > 0) {
                         rows.push(
                           <tr key={proc.name + '-inst-heading'}>
-                            <td></td>
-                            <td style={{ background: '#e0e7ff', fontWeight: 'bold' }}>Instruments</td>
-                            <td></td>
+                            <td colSpan={3} style={{ background: '#e0e7ff', fontWeight: 'bold' }}>Instruments</td>
                           </tr>
                         );
                         rows.push(
                           <tr key={proc.name + '-inst-row'}>
                             <td>{serial++}</td>
-                            <td>{proc.instruments.join(', ')}</td>
-                            <td></td>
+                            <td colSpan={2}>{proc.instruments.join(', ')}</td>
                           </tr>
                         );
                       }
@@ -807,6 +874,7 @@ export default function ImplantChecklistApp() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
               <button onClick={() => setShowPrintPreview(false)} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
+              <button onClick={doSavePDF} style={{ padding: '8px 20px', borderRadius: 4, background: '#2563eb', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Download PDF</button>
               <button onClick={() => window.print()} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
             </div>
           </div>
