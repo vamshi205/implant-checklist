@@ -26,6 +26,8 @@ export default function ImplantChecklistApp() {
   const [showHospitalModal, setShowHospitalModal] = useState(false);
   const [pendingPDF, setPendingPDF] = useState(false);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [focusSizeInput, setFocusSizeInput] = useState(null);
+  const sizeInputRefs = useRef({});
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -92,10 +94,11 @@ export default function ImplantChecklistApp() {
   };
 
   const handleAddSizeQty = (key) => {
-    setSelectedItems((prev) => ({
-      ...prev,
-      [key]: [...(prev[key] || []), { size: "", qty: 1 }],
-    }));
+    setSelectedItems((prev) => {
+      const newArr = [...(prev[key] || []), { size: "", qty: 1 }];
+      setFocusSizeInput({ key, index: newArr.length - 1 });
+      return { ...prev, [key]: newArr };
+    });
   };
 
   const handleSizeQtyChange = (key, index, field, value) => {
@@ -530,6 +533,18 @@ export default function ImplantChecklistApp() {
                         selectedItems[key].map((entry, index) => (
                           <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 32, marginTop: 4 }}>
                             <input
+                              ref={el => {
+                                sizeInputRefs.current[`${key}-${index}`] = el;
+                                if (
+                                  focusSizeInput &&
+                                  focusSizeInput.key === key &&
+                                  focusSizeInput.index === index &&
+                                  el
+                                ) {
+                                  el.focus();
+                                  setFocusSizeInput(null);
+                                }
+                              }}
                               placeholder="Size"
                               value={entry.size}
                               onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
