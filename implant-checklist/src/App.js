@@ -28,6 +28,7 @@ export default function ImplantChecklistApp() {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [focusSizeInput, setFocusSizeInput] = useState(null);
   const sizeInputRefs = useRef({});
+  const [newItemInputs, setNewItemInputs] = useState({});
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -240,6 +241,31 @@ export default function ImplantChecklistApp() {
           }
         : proc
     ));
+  };
+
+  // Handler for new item input change
+  const handleNewItemInputChange = (procedureName, value) => {
+    setNewItemInputs(prev => ({ ...prev, [procedureName]: value }));
+  };
+
+  // Handler to add a new item
+  const handleAddItem = (procedureName) => {
+    const value = (newItemInputs[procedureName] || '').trim();
+    if (!value) return;
+    setProcedures(prev => prev.map(proc =>
+      proc.name === procedureName && !proc.items.includes(value)
+        ? { ...proc, items: [...proc.items, value] }
+        : proc
+    ));
+    setActiveProcedures(prev => prev.map(proc =>
+      proc.name === procedureName && !proc.items.includes(value)
+        ? { ...proc, items: [...proc.items, value] }
+        : proc
+    ));
+    // Auto-select the new item (show + Add Size button)
+    const key = `${procedureName}__${value}`;
+    setSelectedItems(prev => ({ ...prev, [key]: [] }));
+    setNewItemInputs(prev => ({ ...prev, [procedureName]: '' }));
   };
 
   // Handler to save summary as PDF
@@ -576,6 +602,26 @@ export default function ImplantChecklistApp() {
                     </div>
                   );
                 })}
+                {/* Add new item input */}
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Add item"
+                    value={newItemInputs[procedure.name] || ''}
+                    onChange={e => handleNewItemInputChange(procedure.name, e.target.value)}
+                    style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleAddItem(procedure.name);
+                    }}
+                  />
+                  <button
+                    onClick={() => handleAddItem(procedure.name)}
+                    style={{ padding: '6px 16px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}
+                    disabled={!(newItemInputs[procedure.name] || '').trim() || (procedure.items || []).includes((newItemInputs[procedure.name] || '').trim())}
+                  >
+                    Add
+                  </button>
+                </div>
                 {/* Instruments section after items */}
                 {procedure.instruments && procedure.instruments.length > 0 && (
                   <div style={{ marginTop: 16 }}>
@@ -713,14 +759,16 @@ export default function ImplantChecklistApp() {
               proc.items.forEach(item => {
                 const key = `${proc.name}__${item}`;
                 if (selectedItems[key] && selectedItems[key].length > 0) {
-                  selectedItems[key].forEach((entry, eidx) => {
-                    lines.push(
-                      <div key={proc.name + '-' + item + '-' + eidx}>
-                        {item}{entry.size ? ` (${entry.size})` : ''} - {entry.qty}
-                      </div>
-                    );
-                    hasItems = true;
-                  });
+                  // Group all sizes/qtys for this item
+                  const sizeQtys = selectedItems[key]
+                    .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
+                    .join(', ');
+                  lines.push(
+                    <div key={proc.name + '-' + item}>
+                      {item} {sizeQtys}
+                    </div>
+                  );
+                  hasItems = true;
                 }
               });
               // Instruments
@@ -852,15 +900,16 @@ export default function ImplantChecklistApp() {
                       proc.items.forEach(item => {
                         const key = `${proc.name}__${item}`;
                         if (selectedItems[key] && selectedItems[key].length > 0) {
-                          selectedItems[key].forEach((entry, eidx) => {
-                            rows.push(
-                              <tr key={proc.name + '-' + item + '-' + eidx}>
-                                <td>{serial++}</td>
-                                <td>{item} {entry.size ? `(${entry.size})` : ""}</td>
-                                <td>{entry.qty}</td>
-                              </tr>
-                            );
-                          });
+                          const sizeQtys = selectedItems[key]
+                            .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
+                            .join(', ');
+                          rows.push(
+                            <tr key={proc.name + '-' + item}>
+                              <td>{serial++}</td>
+                              <td>{item} {sizeQtys}</td>
+                              <td></td>
+                            </tr>
+                          );
                         }
                       });
                       // Instruments
