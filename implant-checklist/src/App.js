@@ -29,6 +29,7 @@ export default function ImplantChecklistApp() {
   const [focusSizeInput, setFocusSizeInput] = useState(null);
   const sizeInputRefs = useRef({});
   const [newItemInputs, setNewItemInputs] = useState({});
+  const [selectedFixedItems, setSelectedFixedItems] = useState({});
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -44,9 +45,9 @@ export default function ImplantChecklistApp() {
               const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
-              // Parse editable items (from Items column only, comma-separated)
+              // Parse editable items (from Items column only, pipe-separated)
               const editableItems = items
-                ? items.split(',').map(item => item.trim()).filter(Boolean)
+                ? items.split('|').map(item => item.trim()).filter(Boolean)
                 : [];
               return {
                 name: name.trim(),
@@ -57,6 +58,17 @@ export default function ImplantChecklistApp() {
             });
             setProcedures(parsedProcedures);
             setActiveProcedures([]); // Optionally clear active procedures on refetch
+
+            // Initialize selectedFixedItems state
+            const initialSelectedFixed = {};
+            parsedProcedures.forEach(procedure => {
+              if (procedure.fixedList) {
+                procedure.fixedList.forEach(fixed => {
+                  initialSelectedFixed[`${procedure.name}__${fixed.name}`] = true;
+                });
+              }
+            });
+            setSelectedFixedItems(initialSelectedFixed);
           }
         });
       });
@@ -89,7 +101,19 @@ export default function ImplantChecklistApp() {
         const { [key]: _, ...rest } = prev;
         return rest;
       } else {
-        return { ...prev, [key]: [] };
+        // Parse for {Size:Qty,...} in the item string
+        let pairs = [];
+        const braceStart = item.indexOf('{');
+        const braceEnd = item.lastIndexOf('}');
+        if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+          const inside = item.slice(braceStart + 1, braceEnd);
+          pairs = inside.split(',').map(pair => {
+            const [size, qty] = pair.split(':').map(s => (s || '').trim());
+            return (size || qty) ? { size: size || '', qty: qty || '' } : null;
+          }).filter(Boolean);
+        }
+        if (pairs.length === 0) pairs = [{ size: '', qty: '' }];
+        return { ...prev, [key]: pairs };
       }
     });
   };
@@ -125,6 +149,7 @@ export default function ImplantChecklistApp() {
   const handleClearAll = () => {
     setSelectedItems({});
     setActiveProcedures([]);
+    setSelectedFixedItems({});
   };
 
   const handlePrint = () => {
@@ -520,21 +545,29 @@ export default function ImplantChecklistApp() {
             </div>
             {!collapsedProcedures[procedure.name] &&
               <>
-                {/* Fixed items (read-only) */}
+                {/* Fixed items (editable checkbox) */}
                 {procedure.fixedList && procedure.fixedList.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    {procedure.fixedList.map((fixed, idx) => (
-                      <div key={fixed.name + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <input type="checkbox" checked readOnly disabled style={{ accentColor: '#000' }} />
-                        <span>{fixed.name}</span>
-                        <input
-                          type="number"
-                          value={fixedQtyEdits[`${procedure.name}__${fixed.name}`] ?? fixed.qty}
-                          onChange={e => handleFixedQtyChange(procedure.name, fixed.name, e.target.value)}
-                          style={{ width: 60, padding: 6, border: '1px solid #ccc', borderRadius: 4, background: '#fff', color: '#222' }}
-                        />
-                      </div>
-                    ))}
+                    {procedure.fixedList.map((fixed, idx) => {
+                      const key = `${procedure.name}__${fixed.name}`;
+                      return (
+                        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedFixedItems[key] || false}
+                            onChange={() => setSelectedFixedItems(prev => ({ ...prev, [key]: !prev[key] }))}
+                            style={{ accentColor: '#000' }}
+                          />
+                          <span>{fixed.name}</span>
+                          <input
+                            type="number"
+                            value={fixedQtyEdits[key] ?? fixed.qty}
+                            onChange={e => handleFixedQtyChange(procedure.name, fixed.name, e.target.value)}
+                            style={{ width: 60, padding: 6, border: '1px solid #ccc', borderRadius: 4, background: '#fff', color: '#222' }}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {/* Editable items (old logic) */}
@@ -548,7 +581,7 @@ export default function ImplantChecklistApp() {
                           checked={key in selectedItems}
                           onChange={() => handleItemChange(procedure.name, item)}
                         />
-                        <span>{item}</span>
+                        <span>{item.split('{')[0].trim()}</span>
                         {key in selectedItems && selectedItems[key].length === 0 && (
                           <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
                             + Add Size
@@ -747,25 +780,31 @@ export default function ImplantChecklistApp() {
               // Fixed items
               if (proc.fixedList && proc.fixedList.length > 0) {
                 proc.fixedList.forEach(fixed => {
-                  lines.push(
-                    <div key={proc.name + '-fixed-' + fixed.name}>
-                      {fixed.name} - {fixed.qty}
-                    </div>
-                  );
-                  hasItems = true;
+                  const key = `${proc.name}__${fixed.name}`;
+                  if (selectedFixedItems[key]) {
+                    lines.push(
+                      <div key={key}>
+                        {fixed.name} - {fixedQtyEdits[key] ?? fixed.qty}
+                      </div>
+                    );
+                    hasItems = true;
+                  }
                 });
               }
               // Editable items
               proc.items.forEach(item => {
                 const key = `${proc.name}__${item}`;
                 if (selectedItems[key] && selectedItems[key].length > 0) {
+                  // Extract just the item name before {}
+                  const itemName = item.split('{')[0].trim();
                   // Group all sizes/qtys for this item
                   const sizeQtys = selectedItems[key]
                     .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                     .join(', ');
+                  const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                   lines.push(
                     <div key={proc.name + '-' + item}>
-                      {item} {sizeQtys}
+                      {itemName} {sizeQtys} <b>(Total: {totalQty})</b>
                     </div>
                   );
                   hasItems = true;
@@ -887,27 +926,33 @@ export default function ImplantChecklistApp() {
                       // Fixed items
                       if (proc.fixedList && proc.fixedList.length > 0) {
                         proc.fixedList.forEach((fixed, idx) => {
-                          rows.push(
-                            <tr key={proc.name + '-fixed-' + idx}>
-                              <td>{serial++}</td>
-                              <td>{fixed.name}</td>
-                              <td>{fixed.qty}</td>
-                            </tr>
-                          );
+                          const key = `${proc.name}__${fixed.name}`;
+                          if (selectedFixedItems[key]) {
+                            rows.push(
+                              <tr key={key}>
+                                <td>{serial++}</td>
+                                <td>{fixed.name}</td>
+                                <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
+                              </tr>
+                            );
+                          }
                         });
                       }
                       // Editable items
                       proc.items.forEach(item => {
                         const key = `${proc.name}__${item}`;
                         if (selectedItems[key] && selectedItems[key].length > 0) {
+                          // Extract just the item name before {}
+                          const itemName = item.split('{')[0].trim();
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
+                          const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                           rows.push(
                             <tr key={proc.name + '-' + item}>
                               <td>{serial++}</td>
-                              <td>{item} {sizeQtys}</td>
-                              <td></td>
+                              <td>{itemName} {sizeQtys}</td>
+                              <td>{totalQty}</td>
                             </tr>
                           );
                         }
