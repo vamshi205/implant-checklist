@@ -31,6 +31,7 @@ export default function ImplantChecklistApp() {
   const [selectedFixedItems, setSelectedFixedItems] = useState({});
   const [procedureTypes, setProcedureTypes] = useState([]);
   const [selectedProcedureType, setSelectedProcedureType] = useState("All");
+  const [showItemDetails, setShowItemDetails] = useState({});
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -87,9 +88,31 @@ export default function ImplantChecklistApp() {
   const toggleProcedure = (procedure) => {
     if (activeProcedures.some((p) => p.name === procedure.name)) {
       setActiveProcedures((prev) => prev.filter((p) => p.name !== procedure.name));
+      // When removing a procedure, hide all its item details
+      setShowItemDetails(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(key => {
+          if (key.startsWith(procedure.name + "__")) {
+            delete updated[key];
+          }
+        });
+        return updated;
+      });
     } else {
       setActiveProcedures((prev) => [...prev, procedure]);
       setCollapsedProcedures((prev) => ({ ...prev, [procedure.name]: false }));
+      // When adding a procedure, hide all its item details by default unless they already have selected sizes/qtys
+      setShowItemDetails(prev => {
+        const updated = { ...prev };
+        // Initialize item details visibility. If item has selected sizes, show by default.
+         procedure.items.forEach(item => {
+           const key = `${procedure.name}__${item}`;
+           if (!(key in updated)) { // Don't overwrite existing state if procedure was just collapsed/expanded
+             updated[key] = selectedItems[key]?.length > 0; // Show if already has sizes, hide otherwise
+           }
+         });
+         return updated;
+      });
     }
   };
 
@@ -104,9 +127,17 @@ export default function ImplantChecklistApp() {
     const key = `${procedureName}__${item}`;
     setSelectedItems((prev) => {
       if (prev[key]) {
+        // Item is currently selected, unselecting it
         const { [key]: _, ...rest } = prev;
+        // When unselecting an item, also hide its details
+        setShowItemDetails(prevDetails => {
+          const updatedDetails = { ...prevDetails };
+          delete updatedDetails[key];
+          return updatedDetails;
+        });
         return rest;
       } else {
+        // Item is currently unselected, selecting it
         // Parse for {Size:Qty,...} in the item string
         let pairs = [];
         const braceStart = item.indexOf('{');
@@ -119,6 +150,10 @@ export default function ImplantChecklistApp() {
           }).filter(Boolean);
         }
         if (pairs.length === 0) pairs = [{ size: '', qty: '' }];
+
+        // When selecting an item, show its details by default
+        setShowItemDetails(prevDetails => ({ ...prevDetails, [key]: true })); // Ensure details are shown
+
         return { ...prev, [key]: pairs };
       }
     });
@@ -128,6 +163,8 @@ export default function ImplantChecklistApp() {
     setSelectedItems((prev) => {
       const newArr = [...(prev[key] || []), { size: "", qty: 1 }];
       setFocusSizeInput({ key, index: newArr.length - 1 });
+      // Ensure item details are visible when adding a size/qty
+      setShowItemDetails(prev => ({ ...prev, [key]: true }));
       return { ...prev, [key]: newArr };
     });
   };
@@ -146,6 +183,12 @@ export default function ImplantChecklistApp() {
       updated.splice(index, 1);
       if (updated.length === 0) {
         const { [key]: _, ...rest } = prev;
+        // Hide item details if no sizes/qtys remain
+        setShowItemDetails(prevDetails => {
+           const updatedDetails = { ...prevDetails };
+           delete updatedDetails[key];
+           return updatedDetails;
+        });
         return rest;
       }
       return { ...prev, [key]: updated };
@@ -156,6 +199,7 @@ export default function ImplantChecklistApp() {
     setSelectedItems({});
     setActiveProcedures([]);
     setSelectedFixedItems({});
+    setShowItemDetails({}); // Clear item detail visibility state
   };
 
   const handlePrint = () => {
@@ -580,68 +624,99 @@ export default function ImplantChecklistApp() {
                     })}
                   </div>
                 )}
-                {/* Editable items (old logic) */}
+                {/* Editable items */}
                 {procedure.items.map((item) => {
                   const key = `${procedure.name}__${item}`;
+                  const isItemSelected = key in selectedItems;
+                  const itemHasSizes = isItemSelected && selectedItems[key]?.length > 0;
+                  const areDetailsVisible = showItemDetails[key] || false; // Default to false if undefined
+
                   return (
-                    <div key={item} style={{ margin: "12px 0" }}>
+                    <div key={key} style={{ margin: "12px 0" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <input
                           type="checkbox"
-                          checked={key in selectedItems}
+                          checked={isItemSelected}
                           onChange={() => handleItemChange(procedure.name, item)}
                         />
-                        <span>{item.split('{')[0].trim()}</span>
-                        {key in selectedItems && selectedItems[key].length === 0 && (
-                          <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
+                        <span>{item.split('{')[0].trim()}</span> {/* Show base item name */}
+
+                        {/* Show toggle button only if the item is selected */}
+                        {isItemSelected && (
+                          <button
+                            style={{
+                              marginLeft: 8,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: "#e0e7ff",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                            onClick={() => setShowItemDetails(prev => ({ ...prev, [key]: !prev[key] }))}
+                            title={areDetailsVisible ? "Hide sizes/qtys" : "Show sizes/qtys"}
+                          >
+                            {areDetailsVisible ? 'Hide Sizes' : 'Show Sizes'}
+                          </button>
+                        )}
+
+                        {/* Show Add Size button only if the item is selected AND currently has no sizes */}
+                        {isItemSelected && !itemHasSizes && (
+                           <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
                             + Add Size
                           </button>
                         )}
                       </div>
-                      {selectedItems[key]?.length > 0 &&
-                        selectedItems[key].map((entry, index) => (
-                          <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 32, marginTop: 4 }}>
-                            <input
-                              ref={el => {
-                                sizeInputRefs.current[`${key}-${index}`] = el;
-                                if (
-                                  focusSizeInput &&
-                                  focusSizeInput.key === key &&
-                                  focusSizeInput.index === index &&
-                                  el
-                                ) {
-                                  el.focus();
-                                  setFocusSizeInput(null);
-                                }
-                              }}
-                              placeholder="Size"
-                              value={entry.size}
-                              onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
-                              style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                            />
-                            <input
-                              placeholder="Qty"
-                              type="number"
-                              value={entry.qty}
-                              onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
-                              style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                            />
-                            <div style={{ display: "flex", gap: 4 }}>
-                              <button
-                                style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
-                                onClick={() => handleAddSizeQty(key)}
-                              >
-                                +
-                              </button>
-                              <button
-                                style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
-                                onClick={() => handleDeleteSizeQty(key, index)}
-                              >
-                                <Trash2 style={{ width: 16, height: 16 }} />
-                              </button>
+
+                      {/* Show item details (size/qty inputs) only if item is selected, has sizes, AND is toggled on */}
+                      {isItemSelected && itemHasSizes && areDetailsVisible && (
+                        <div style={{ marginLeft: 32, marginTop: 4 }}>
+                          {selectedItems[key].map((entry, index) => (
+                            <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <input
+                                ref={el => {
+                                  sizeInputRefs.current[`${key}-${index}`] = el;
+                                  if (
+                                    focusSizeInput &&
+                                    focusSizeInput.key === key &&
+                                    focusSizeInput.index === index &&
+                                    el
+                                  ) {
+                                    el.focus();
+                                    setFocusSizeInput(null);
+                                  }
+                                }}
+                                placeholder="Size"
+                                value={entry.size}
+                                onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
+                                style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                              />
+                              <input
+                                placeholder="Qty"
+                                type="number"
+                                value={entry.qty}
+                                onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
+                                style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                              />
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <button
+                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
+                                  onClick={() => handleAddSizeQty(key)}
+                                >
+                                  +
+                                </button>
+                                <button
+                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
+                                  onClick={() => handleDeleteSizeQty(key, index)}
+                                >
+                                  <Trash2 style={{ width: 16, height: 16 }} />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
