@@ -17,7 +17,6 @@ export default function ImplantChecklistApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedProcedures, setCollapsedProcedures] = useState({});
   const [dcNo, setDcNo] = useState("");
-  const [showDcNoModal, setShowDcNoModal] = useState(false);
   const printRef = useRef();
   const [showProcedures, setShowProcedures] = useState(false);
   const [newInstrumentInputs, setNewInstrumentInputs] = useState({});
@@ -160,8 +159,9 @@ export default function ImplantChecklistApp() {
   };
 
   const handlePrint = () => {
-    if (!dcNo.trim()) {
-      setShowDcNoModal(true);
+    if (!hospitalName.trim() || !dcNo.trim()) {
+      setShowHospitalModal(true);
+      setPendingPDF(false);
       return;
     }
     setShowPrintPreview(true);
@@ -439,29 +439,6 @@ export default function ImplantChecklistApp() {
         }
       `}</style>
       {/* End responsive styles */}
-      {showDcNoModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-          <div className="responsive-modal" style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%", minWidth: 0 }}>
-            <h2 style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}>Enter DC No</h2>
-            <input
-              className="responsive-input"
-              placeholder="DC No"
-              value={dcNo}
-              onChange={(e) => setDcNo(e.target.value)}
-              style={{ marginBottom: 16, width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button onClick={() => setShowDcNoModal(false)} style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ccc", background: "white" }}>Cancel</button>
-              <button onClick={() => {
-                if (dcNo.trim()) {
-                  setShowDcNoModal(false);
-                  handlePrint();
-                }
-              }} style={{ padding: "6px 12px", borderRadius: 4, background: "#2563eb", color: "white", border: "none" }}>Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ fontSize: 28, fontWeight: "bold", textAlign: "center", width: "100%", marginBottom: 32 }}>SRR Ortho Implant DC Generator</h1>
@@ -879,7 +856,16 @@ export default function ImplantChecklistApp() {
             />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={() => setShowHospitalModal(false)} style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ccc", background: "white" }}>Cancel</button>
-              <button onClick={() => { setShowHospitalModal(false); setShowPrintPreview(true); }} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim() || !dcNo.trim()}>Continue</button>
+              <button onClick={() => {
+                if (hospitalName.trim() && dcNo.trim()) {
+                  setShowHospitalModal(false);
+                  if (pendingPDF) {
+                    doSavePDF();
+                  } else {
+                    setShowPrintPreview(true);
+                  }
+                }
+              }} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim() || !dcNo.trim()}>Continue</button>
             </div>
           </div>
         </div>
