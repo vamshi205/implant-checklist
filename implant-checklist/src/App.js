@@ -32,6 +32,35 @@ export default function ImplantChecklistApp() {
   const [procedureTypes, setProcedureTypes] = useState([]);
   const [selectedProcedureType, setSelectedProcedureType] = useState("All");
   const [showItemDetails, setShowItemDetails] = useState({});
+  const [selectedMaterial, setSelectedMaterial] = useState("SS");
+  const [instrumentSuggestions, setInstrumentSuggestions] = useState({});
+  const [itemSuggestions, setItemSuggestions] = useState({});
+  const [showInstrumentSuggestions, setShowInstrumentSuggestions] = useState({});
+  const [showItemSuggestions, setShowItemSuggestions] = useState({});
+  const [highlightedInstrumentIndex, setHighlightedInstrumentIndex] = useState({});
+  const [highlightedItemIndex, setHighlightedItemIndex] = useState({});
+
+  // Initialize Fuse.js for fuzzy search on items and instruments
+  const itemFuse = useRef(null);
+  const instrumentFuse = useRef(null);
+
+  // Effect to initialize Fuse.js instances when procedures data is loaded
+  useEffect(() => {
+    if (procedures.length > 0) {
+      const allInstruments = [...new Set(procedures.flatMap(p => p.instruments))]; // Get unique instruments
+      const allItems = [...new Set(procedures.flatMap(p => p.items))]; // Get unique original items
+
+      instrumentFuse.current = new Fuse(allInstruments, {
+        threshold: 0.4, // Increased threshold for more forgiving fuzzy search
+      });
+
+      itemFuse.current = new Fuse(allItems, {
+        threshold: 0.4, // Increased threshold for more forgiving fuzzy search
+        keys: [''], // Search the string elements directly
+        ignoreLocation: true,
+      });
+    }
+  }, [procedures]); // Re-initialize if procedures change
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -273,9 +302,35 @@ export default function ImplantChecklistApp() {
       });
   };
 
+  // Add a handler for instrument suggestion selection
+  const handleInstrumentSuggestionClick = (procedureName, suggestion) => {
+    handleNewInstrumentInputChange(procedureName, suggestion); // Put suggestion in input
+    setShowInstrumentSuggestions(prev => ({ ...prev, [procedureName]: false })); // Hide suggestions
+    setHighlightedInstrumentIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight
+  };
+
+  // Add a handler for item suggestion selection
+  const handleItemSuggestionClick = (procedureName, suggestion) => {
+    handleNewItemInputChange(procedureName, suggestion); // Put suggestion in input
+    setShowItemSuggestions(prev => ({ ...prev, [procedureName]: false })); // Hide suggestions
+    setHighlightedItemIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight
+  };
+
   // Handler for input change
   const handleNewInstrumentInputChange = (procedureName, value) => {
     setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: value }));
+
+    // Filter instruments using Fuse.js if value is not empty
+    if (value.trim() && instrumentFuse.current) {
+      const results = instrumentFuse.current.search(value);
+      setInstrumentSuggestions(prev => ({ ...prev, [procedureName]: results.map(r => r.item) }));
+      setShowInstrumentSuggestions(prev => ({ ...prev, [procedureName]: true }));
+      setHighlightedInstrumentIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight on input change
+    } else {
+      setInstrumentSuggestions(prev => ({ ...prev, [procedureName]: [] }));
+      setShowInstrumentSuggestions(prev => ({ ...prev, [procedureName]: false }));
+      setHighlightedInstrumentIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight if input is empty
+    }
   };
 
   // Handler to add a new instrument
@@ -293,6 +348,9 @@ export default function ImplantChecklistApp() {
         : proc
     ));
     setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: '' }));
+    setInstrumentSuggestions(prev => ({ ...prev, [procedureName]: [] })); // Clear suggestions on add
+    setShowInstrumentSuggestions(prev => ({ ...prev, [procedureName]: false })); // Hide suggestions on add
+    setHighlightedInstrumentIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight on add
   };
 
   // Handler for fixed item qty change
@@ -327,6 +385,18 @@ export default function ImplantChecklistApp() {
   // Handler for new item input change
   const handleNewItemInputChange = (procedureName, value) => {
     setNewItemInputs(prev => ({ ...prev, [procedureName]: value }));
+
+    // Filter items using Fuse.js if value is not empty
+     if (value.trim() && itemFuse.current) {
+       const results = itemFuse.current.search(value);
+       setItemSuggestions(prev => ({ ...prev, [procedureName]: results.map(r => r.item) }));
+       setShowItemSuggestions(prev => ({ ...prev, [procedureName]: true }));
+       setHighlightedItemIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight on input change
+     } else {
+       setItemSuggestions(prev => ({ ...prev, [procedureName]: [] }));
+       setShowItemSuggestions(prev => ({ ...prev, [procedureName]: false }));
+       setHighlightedItemIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight if input is empty
+     }
   };
 
   // Handler to add a new item
@@ -345,8 +415,25 @@ export default function ImplantChecklistApp() {
     ));
     // Auto-select the new item (show + Add Size button)
     const key = `${procedureName}__${value}`;
-    setSelectedItems(prev => ({ ...prev, [key]: [] }));
+    // Parse for {Size:Qty,...} in the item string when adding
+    let pairs = [];
+    const braceStart = value.indexOf('{');
+    const braceEnd = value.lastIndexOf('}');
+    if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+      const inside = value.slice(braceStart + 1, braceEnd);
+      pairs = inside.split(',').map(pair => {
+        const [size, qty] = pair.split(':').map(s => (s || '').trim());
+        return (size || qty) ? { size: size || '', qty: qty || '' } : null;
+      }).filter(Boolean);
+    }
+    if (pairs.length === 0) pairs = [{ size: '', qty: 1 }]; // Initialize with 1 qty if no pattern or empty sizes
+
+    setSelectedItems(prev => ({ ...prev, [key]: pairs }));
+    setShowItemDetails(prev => ({ ...prev, [key]: true })); // Ensure details are shown for the newly added item
     setNewItemInputs(prev => ({ ...prev, [procedureName]: '' }));
+    setItemSuggestions(prev => ({ ...prev, [procedureName]: [] })); // Clear suggestions on add
+    setShowItemSuggestions(prev => ({ ...prev, [procedureName]: false })); // Hide suggestions on add
+    setHighlightedItemIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight on add
   };
 
   // Handler to save summary as PDF
@@ -511,6 +598,15 @@ export default function ImplantChecklistApp() {
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{ flex: 1, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
         />
+        {/* Material Type Dropdown */}
+        <select
+          value={selectedMaterial}
+          onChange={(e) => setSelectedMaterial(e.target.value)}
+          style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+        >
+          <option value="SS">SS</option>
+          <option value="Titanium">Titanium</option>
+        </select>
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
@@ -612,7 +708,7 @@ export default function ImplantChecklistApp() {
                             onChange={() => setSelectedFixedItems(prev => ({ ...prev, [key]: !prev[key] }))}
                             style={{ accentColor: '#000' }}
                           />
-                          <span>{fixed.name}</span>
+                          <span>{selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name}</span>
                           <input
                             type="number"
                             value={fixedQtyEdits[key] ?? fixed.qty}
@@ -639,7 +735,7 @@ export default function ImplantChecklistApp() {
                           checked={isItemSelected}
                           onChange={() => handleItemChange(procedure.name, item)}
                         />
-                        <span>{item.split('{')[0].trim()}</span> {/* Show base item name */}
+                        <span>{selectedMaterial === 'Titanium' ? 'Titanium ' + item.split('{')[0].trim() : item.split('{')[0].trim()}</span>
 
                         {/* Show toggle button only if the item is selected */}
                         {isItemSelected && (
@@ -721,7 +817,7 @@ export default function ImplantChecklistApp() {
                   );
                 })}
                 {/* Add new item input */}
-                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
                   <input
                     type="text"
                     placeholder="Add item"
@@ -729,8 +825,41 @@ export default function ImplantChecklistApp() {
                     onChange={e => handleNewItemInputChange(procedure.name, e.target.value)}
                     style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
                     onKeyDown={e => {
-                      if (e.key === 'Enter') handleAddItem(procedure.name);
+                      if (e.key === 'Enter') {
+                        if (showItemSuggestions[procedure.name] && itemSuggestions[procedure.name]?.[highlightedItemIndex[procedure.name]] !== undefined) {
+                          handleItemSuggestionClick(procedure.name, itemSuggestions[procedure.name][highlightedItemIndex[procedure.name]]);
+                        } else if (newItemInputs[procedure.name]?.trim()) { // Only add if input is not empty
+                          handleAddItem(procedure.name);
+                        }
+                        // No need to reset highlight/hide suggestions here, handlers do it.
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        if (showItemSuggestions[procedure.name] && itemSuggestions[procedure.name]?.length > 0) { // Only navigate if suggestions are visible
+                          const nextIndex = (highlightedItemIndex[procedure.name] || 0) + 1;
+                          if (nextIndex < itemSuggestions[procedure.name].length) {
+                            setHighlightedItemIndex(prev => ({ ...prev, [procedure.name]: nextIndex }));
+                          } else {
+                            setHighlightedItemIndex(prev => ({ ...prev, [procedure.name]: 0 })); // Wrap around
+                          }
+                        }
+                      } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          if (showItemSuggestions[procedure.name] && itemSuggestions[procedure.name]?.length > 0) { // Only navigate if suggestions are visible
+                            const prevIndex = (highlightedItemIndex[procedure.name] || 0) - 1;
+                            if (prevIndex >= 0) {
+                              setHighlightedItemIndex(prev => ({ ...prev, [procedure.name]: prevIndex }));
+                            } else {
+                              setHighlightedItemIndex(prev => ({ ...prev, [procedure.name]: itemSuggestions[procedure.name].length - 1 })); // Wrap around
+                            }
+                          }
+                      }
                     }}
+                     onBlur={() => setTimeout(() => setShowItemSuggestions(prev => ({ ...prev, [procedure.name]: false })), 100)} // Hide suggestions on blur (with delay)
+                     onFocus={() => { // Show suggestions again on focus if input has value and suggestions exist
+                       if (newItemInputs[procedure.name]?.trim() && itemSuggestions[procedure.name]?.length > 0) {
+                         setShowItemSuggestions(prev => ({ ...prev, [procedure.name]: true }));
+                       }
+                     }}
                   />
                   <button
                     onClick={() => handleAddItem(procedure.name)}
@@ -739,6 +868,25 @@ export default function ImplantChecklistApp() {
                   >
                     Add
                   </button>
+                   {/* Item Suggestions Dropdown */}
+                   {showItemSuggestions[procedure.name] && itemSuggestions[procedure.name]?.length > 0 && (
+                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid #ccc', borderRadius: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxHeight: 150, overflowY: 'auto' }}>
+                       {itemSuggestions[procedure.name].map((suggestion, sIdx) => (
+                         <div
+                           key={sIdx}
+                           style={{
+                             padding: '8px 12px',
+                             cursor: 'pointer',
+                             background: highlightedItemIndex[procedure.name] === sIdx ? '#f0f0f0' : 'transparent', // Highlight style
+                           }}
+                           onClick={() => handleItemSuggestionClick(procedure.name, suggestion)}
+                           onMouseDown={(e) => e.preventDefault()} // Prevent blur from hiding suggestions before click
+                         >
+                           {suggestion.split('{')[0].trim()}
+                         </div>
+                       ))}
+                     </div>
+                   )}
                 </div>
                 {/* Instruments section after items */}
                 {procedure.instruments && procedure.instruments.length > 0 && (
@@ -786,7 +934,7 @@ export default function ImplantChecklistApp() {
                       ))}
                     </div>
                     {/* Add new instrument input */}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
                       <input
                         type="text"
                         placeholder="Add instrument"
@@ -794,8 +942,41 @@ export default function ImplantChecklistApp() {
                         onChange={e => handleNewInstrumentInputChange(procedure.name, e.target.value)}
                         style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
                         onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddInstrument(procedure.name);
+                          if (e.key === 'Enter') {
+                            if (showInstrumentSuggestions[procedure.name] && instrumentSuggestions[procedure.name]?.[highlightedInstrumentIndex[procedure.name]] !== undefined) {
+                              handleInstrumentSuggestionClick(procedure.name, instrumentSuggestions[procedure.name][highlightedInstrumentIndex[procedure.name]]);
+                            } else if (newInstrumentInputs[procedure.name]?.trim()) { // Only add if input is not empty
+                              handleAddInstrument(procedure.name);
+                            }
+                               // No need to reset highlight/hide suggestions here, handlers do it.
+                          } else if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            if (showInstrumentSuggestions[procedure.name] && instrumentSuggestions[procedure.name]?.length > 0) { // Only navigate if suggestions are visible
+                              const nextIndex = (highlightedInstrumentIndex[procedure.name] || 0) + 1;
+                              if (nextIndex < instrumentSuggestions[procedure.name].length) {
+                                setHighlightedInstrumentIndex(prev => ({ ...prev, [procedure.name]: nextIndex }));
+                              } else {
+                                setHighlightedInstrumentIndex(prev => ({ ...prev, [procedure.name]: 0 })); // Wrap around
+                              }
+                            }
+                          } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              if (showInstrumentSuggestions[procedure.name] && instrumentSuggestions[procedure.name]?.length > 0) { // Only navigate if suggestions are visible
+                                const prevIndex = (highlightedInstrumentIndex[procedure.name] || 0) - 1;
+                                if (prevIndex >= 0) {
+                                  setHighlightedInstrumentIndex(prev => ({ ...prev, [procedure.name]: prevIndex }));
+                                } else {
+                                  setHighlightedInstrumentIndex(prev => ({ ...prev, [procedure.name]: instrumentSuggestions[procedure.name].length - 1 })); // Wrap around
+                                }
+                              }
+                          }
                         }}
+                         onBlur={() => setTimeout(() => setShowInstrumentSuggestions(prev => ({ ...prev, [procedure.name]: false })), 100)} // Hide suggestions on blur (with delay)
+                          onFocus={() => { // Show suggestions again on focus if input has value and suggestions exist
+                            if (newInstrumentInputs[procedure.name]?.trim() && instrumentSuggestions[procedure.name]?.length > 0) {
+                              setShowInstrumentSuggestions(prev => ({ ...prev, [procedure.name]: true }));
+                            }
+                          }}
                       />
                       <button
                         onClick={() => handleAddInstrument(procedure.name)}
@@ -804,6 +985,25 @@ export default function ImplantChecklistApp() {
                       >
                         Add
                       </button>
+                      {/* Instrument Suggestions Dropdown */}
+                      {showInstrumentSuggestions[procedure.name] && instrumentSuggestions[procedure.name]?.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid #ccc', borderRadius: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', maxHeight: 150, overflowY: 'auto' }}>
+                          {instrumentSuggestions[procedure.name].map((suggestion, sIdx) => (
+                            <div
+                              key={sIdx}
+                              style={{
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                                background: highlightedInstrumentIndex[procedure.name] === sIdx ? '#f0f0f0' : 'transparent', // Highlight style
+                              }}
+                              onClick={() => handleInstrumentSuggestionClick(procedure.name, suggestion)}
+                              onMouseDown={(e) => e.preventDefault()} // Prevent blur from hiding suggestions before click
+                            >
+                              {suggestion}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -867,9 +1067,10 @@ export default function ImplantChecklistApp() {
                 proc.fixedList.forEach(fixed => {
                   const key = `${proc.name}__${fixed.name}`;
                   if (selectedFixedItems[key]) {
+                    const displayedFixedName = selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
                     lines.push(
                       <div key={key}>
-                        {fixed.name} - {fixedQtyEdits[key] ?? fixed.qty}
+                        {displayedFixedName} - {fixedQtyEdits[key] ?? fixed.qty}
                       </div>
                     );
                     hasItems = true;
@@ -882,6 +1083,7 @@ export default function ImplantChecklistApp() {
                 if (selectedItems[key] && selectedItems[key].length > 0) {
                   // Extract just the item name before {}
                   const itemName = item.split('{')[0].trim();
+                  const displayedItemName = selectedMaterial === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
                   // Group all sizes/qtys for this item
                   const sizeQtys = selectedItems[key]
                     .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
@@ -889,7 +1091,7 @@ export default function ImplantChecklistApp() {
                   const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                   lines.push(
                     <div key={proc.name + '-' + item}>
-                      {itemName} {sizeQtys} <b>(Total: {totalQty})</b>
+                      {displayedItemName} {sizeQtys} <b>(Total: {totalQty})</b>
                     </div>
                   );
                   hasItems = true;
@@ -1022,10 +1224,11 @@ export default function ImplantChecklistApp() {
                         proc.fixedList.forEach((fixed, idx) => {
                           const key = `${proc.name}__${fixed.name}`;
                           if (selectedFixedItems[key]) {
+                            const displayedFixedName = selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
                             rows.push(
                               <tr key={key}>
                                 <td>{serial++}</td>
-                                <td>{fixed.name}</td>
+                                <td>{displayedFixedName}</td>
                                 <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
                               </tr>
                             );
@@ -1038,6 +1241,7 @@ export default function ImplantChecklistApp() {
                         if (selectedItems[key] && selectedItems[key].length > 0) {
                           // Extract just the item name before {}
                           const itemName = item.split('{')[0].trim();
+                          const displayedItemName = selectedMaterial === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
@@ -1045,7 +1249,7 @@ export default function ImplantChecklistApp() {
                           rows.push(
                             <tr key={proc.name + '-' + item}>
                               <td>{serial++}</td>
-                              <td>{itemName} {sizeQtys}</td>
+                              <td>{displayedItemName} {sizeQtys}</td>
                               <td>{totalQty}</td>
                             </tr>
                           );
