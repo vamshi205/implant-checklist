@@ -30,6 +30,8 @@ export default function ImplantChecklistApp() {
   const sizeInputRefs = useRef({});
   const [newItemInputs, setNewItemInputs] = useState({});
   const [selectedFixedItems, setSelectedFixedItems] = useState({});
+  const [procedureTypes, setProcedureTypes] = useState([]);
+  const [selectedProcedureType, setSelectedProcedureType] = useState("All");
 
   // Fetch procedures from Google Sheet
   const fetchProcedures = () => {
@@ -40,7 +42,7 @@ export default function ImplantChecklistApp() {
           header: false,
           skipEmptyLines: true,
           complete: (results) => {
-            const parsedProcedures = results.data.slice(1).map(([name, items, fixedItems, fixedQty, instruments]) => {
+            const parsedProcedures = results.data.slice(1).map(([name, items, fixedItems, fixedQty, instruments, type]) => {
               // Parse fixed items and qtys strictly by | only
               const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
@@ -54,6 +56,7 @@ export default function ImplantChecklistApp() {
                 items: editableItems,
                 fixedList,
                 instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+                type: type ? type.trim() : 'Others',
               };
             });
             setProcedures(parsedProcedures);
@@ -69,6 +72,10 @@ export default function ImplantChecklistApp() {
               }
             });
             setSelectedFixedItems(initialSelectedFixed);
+
+            // Extract unique procedure types
+            const types = [...new Set(parsedProcedures.map(p => p.type))].filter(Boolean).sort();
+            setProcedureTypes(['All', ...types]);
           }
         });
       });
@@ -174,6 +181,11 @@ export default function ImplantChecklistApp() {
     searchQuery.trim() === ""
       ? procedures
       : fuse.search(searchQuery).map(result => result.item);
+
+  // Filter by selected type
+  const typeFilteredProcedures = selectedProcedureType === 'All'
+    ? filteredProcedures
+    : filteredProcedures.filter(proc => proc.type === selectedProcedureType);
 
   // Add a handler to remove an instrument from a procedure
   const handleRemoveInstrument = (procedureName, instrument) => {
@@ -481,18 +493,39 @@ export default function ImplantChecklistApp() {
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
+        {/* Type filter buttons */}
+        {procedureTypes.map(type => (
+          <button
+            key={type}
+            onClick={() => {
+              setSelectedProcedureType(type);
+              setShowProcedures(true);
+            }}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 6,
+              border: selectedProcedureType === type ? "2px solid #2563eb" : "1px solid #ccc",
+              background: selectedProcedureType === type ? "#2563eb" : "white",
+              color: selectedProcedureType === type ? "white" : "#222",
+              fontWeight: 500,
+              cursor: "pointer"
+            }}
+          >
+            {type}
+          </button>
+        ))}
         <button
           className="responsive-btn"
           onClick={() => setShowProcedures((prev) => !prev)}
           style={{ padding: "10px 24px", borderRadius: 6, background: "#000", color: "#fff", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}
         >
-          {showProcedures ? "Hide Procedures" : "Show All Procedures"}
+          {showProcedures ? "Hide Procedures" : "Show Selected Procedures"}
         </button>
       </div>
 
       {(showProcedures || searchQuery.trim() !== "") && (
         <div className="procedure-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-          {filteredProcedures.map((procedure) => (
+          {typeFilteredProcedures.map((procedure) => (
             <button
               key={procedure.name}
               onClick={() => toggleProcedure(procedure)}
