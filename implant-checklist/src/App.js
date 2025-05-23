@@ -127,6 +127,30 @@ export default function ImplantChecklistApp() {
         });
         return updated;
       });
+      setCollapsedProcedures((prev) => ({ ...prev, [procedure.name]: false }));
+      // When adding a procedure, hide all its item details by default unless they already have selected sizes/qtys
+      setShowItemDetails(prev => {
+        const updated = { ...prev };
+        // Initialize item details visibility. If item has selected sizes, show by default.
+         procedure.items.forEach(item => {
+           const key = `${procedure.name}__${item}`;
+           if (!(key in updated)) { // Don't overwrite existing state if procedure was just collapsed/expanded
+             updated[key] = selectedItems[key]?.length > 0; // Show if already has sizes, hide otherwise
+           }
+         });
+         return updated;
+      });
+
+      // *** NEW: Explicitly select all fixed items for the newly active procedure ***
+      setSelectedFixedItems(prev => {
+          const updated = { ...prev };
+          if (procedure.fixedList) {
+              procedure.fixedList.forEach(fixed => {
+                  updated[`${procedure.name}__${fixed.name}`] = true;
+              });
+          }
+          return updated;
+      });
     } else {
       setActiveProcedures((prev) => [...prev, procedure]);
       setCollapsedProcedures((prev) => ({ ...prev, [procedure.name]: false }));
@@ -278,8 +302,8 @@ export default function ImplantChecklistApp() {
     );
   };
 
-  // Refetch instruments for a single procedure from the sheet
-  const refetchProcedureInstruments = (procedureName) => {
+  // Refetch a single procedure's data from the sheet
+  const refetchSingleProcedure = (procedureName) => {
     fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
       .then(response => response.text())
       .then(csvText => {
@@ -287,18 +311,126 @@ export default function ImplantChecklistApp() {
           header: false,
           skipEmptyLines: true,
           complete: (results) => {
-            const found = results.data.find(([name]) => name && name.trim() === procedureName);
-            if (found) {
-              const instruments = found[4] ? found[4].split('|').map(inst => inst.trim()).filter(Boolean) : [];
+            const foundRow = results.data.slice(1).find(([name]) => name && name.trim() === procedureName);
+            if (foundRow) {
+              const [name, items, fixedItems, fixedQty, instruments, type] = foundRow;
+              const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
+              const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
+              const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
+              const editableItems = items
+                ? items.split('|').map(item => item.trim()).filter(Boolean)
+                : [];
+              const updatedProcedure = {
+                name: name.trim(),
+                items: editableItems,
+                fixedList,
+                instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+                type: type ? type.trim() : 'Others',
+              };
+
+              // Update procedures state
               setProcedures(prev => prev.map(proc =>
-                proc.name === procedureName ? { ...proc, instruments } : proc
+                proc.name === procedureName ? updatedProcedure : proc
               ));
+
+              // Update activeProcedures state
               setActiveProcedures(prev => prev.map(proc =>
-                proc.name === procedureName ? { ...proc, instruments } : proc
+                proc.name === procedureName ? updatedProcedure : proc
               ));
+
+              // Re-initialize selectedFixedItems for this procedure with fetched data
+              setSelectedFixedItems(prev => {
+                  const updated = { ...prev };
+                  // First, remove all previous fixed items for this procedure
+                  Object.keys(updated).forEach(key => {
+                      if (key.startsWith(procedureName + "__")) {
+                          delete updated[key];
+                      }
+                  });
+                  // Then, add the new/refreshed fixed items, all checked by default
+                  updatedProcedure.fixedList.forEach(fixed => {
+                      updated[`${procedureName}__${fixed.name}`] = true;
+                  });
+                  return updated;
+              });
+
+              // Clear fixedQtyEdits for this procedure as quantities are refetched
+              setFixedQtyEdits(prev => {
+                  const updated = { ...prev };
+                   Object.keys(updated).forEach(key => {
+                      if (key.startsWith(procedureName + "__")) {
+                          delete updated[key];
+                      }
+                  });
+                  return updated;
+              });
+
+              // *** NEW: Re-initialize selectedItems and showItemDetails for editable items based on refetched data ***
+              setSelectedItems(prev => {
+                  const updated = { ...prev };
+                  // Remove all previous editable item selections for this procedure
+                  Object.keys(updated).forEach(key => {
+                      if (key.startsWith(procedureName + "__")) {
+                          delete updated[key];
+                      }
+                  });
+                  // Add selections and parse sizes/qtys based on the refetched item list
+                  updatedProcedure.items.forEach(item => {
+                      const key = `${procedureName}__${item}`;
+                      let pairs = [];
+                      const braceStart = item.indexOf('{');
+                      const braceEnd = item.lastIndexOf('}');
+                      if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+                          const inside = item.slice(braceStart + 1, braceEnd);
+                          pairs = inside.split(',').map(pair => {
+                              const [size, qty] = pair.split(':').map(s => (s || '').trim());
+                              return (size || qty) ? { size: size || '', qty: qty || '' } : null;
+                          }).filter(Boolean);
+                      }
+                      // Only add to selectedItems if it has a pattern or should be selected by default
+                      // For refresh, let's assume items from sheet with patterns should be selected and show details
+                      if (pairs.length > 0) {
+                           updated[key] = pairs;
+                      } else {
+                          // Optionally, you could decide if items without patterns should be selected by default on refresh.
+                          // For now, we'll only auto-select items with parsed patterns.
+                          // To auto-select all items from the sheet, uncomment the line below:
+                          // updated[key] = [{ size: '', qty: 1 }];
+                      }
+                  });
+                  return updated;
+              });
+
+               setShowItemDetails(prev => {
+                  const updated = { ...prev };
+                  // Remove all previous showItemDetails states for this procedure
+                   Object.keys(updated).forEach(key => {
+                      if (key.startsWith(procedureName + "__")) {
+                          delete updated[key];
+                      }
+                  });
+                   // Set showItemDetails to true for items that were just added to selectedItems (i.e., had patterns)
+                  updatedProcedure.items.forEach(item => {
+                       const key = `${procedureName}__${item}`;
+                       if (selectedItems[key]) { // Check if it was added to selectedItems in the previous step
+                           updated[key] = true;
+                       }
+                   });
+                  return updated;
+              });
+
+              // Keep selectedItems state for editable items, as user selections should persist
+              // Keep showItemDetails state for editable items
+
+              console.log(`Refreshed data for procedure: ${procedureName}`);
+            } else {
+              console.warn(`Procedure not found in sheet after refresh: ${procedureName}`);
             }
           }
         });
+      })
+      .catch(error => {
+        console.error('Error refetching single procedure:', error);
       });
   };
 
@@ -672,6 +804,13 @@ export default function ImplantChecklistApp() {
                   {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
                 </button>
                 <button
+                  onClick={() => refetchSingleProcedure(procedure.name)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginLeft: 4 }}
+                  title={`Refresh ${procedure.name} from sheet`}
+                >
+                  ↻
+                </button>
+                <button
                   onClick={() => {
                     // Remove all selected items for this procedure
                     setSelectedItems(prev => {
@@ -894,7 +1033,7 @@ export default function ImplantChecklistApp() {
                     <div style={{ display: 'flex', alignItems: 'center', fontWeight: 600, marginBottom: 4 }}>
                       <span>Instruments</span>
                       <button
-                        onClick={() => refetchProcedureInstruments(procedure.name)}
+                        onClick={() => refetchSingleProcedure(procedure.name)}
                         style={{
                           marginLeft: 8,
                           background: 'none',
