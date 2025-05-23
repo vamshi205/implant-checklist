@@ -44,9 +44,9 @@ export default function ImplantChecklistApp() {
               const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
-              // Parse editable items (from Items column only, comma-separated)
+              // Parse editable items (from Items column only, pipe-separated)
               const editableItems = items
-                ? items.split(',').map(item => item.trim()).filter(Boolean)
+                ? items.split('|').map(item => item.trim()).filter(Boolean)
                 : [];
               return {
                 name: name.trim(),
