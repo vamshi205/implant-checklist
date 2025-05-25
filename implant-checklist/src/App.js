@@ -4,6 +4,9 @@ import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import Fuse from "fuse.js";
 import html2pdf from "html2pdf.js";
 
+// NEW: Import additional Lucide icons
+import { Pencil, RefreshCcw } from "lucide-react";
+
 export default function ImplantChecklistApp() {
   const [authenticated, setAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
@@ -32,13 +35,18 @@ export default function ImplantChecklistApp() {
   const [procedureTypes, setProcedureTypes] = useState([]);
   const [selectedProcedureType, setSelectedProcedureType] = useState("All");
   const [showItemDetails, setShowItemDetails] = useState({});
-  const [selectedMaterial, setSelectedMaterial] = useState("SS");
+  const [selectedProcedureMaterials, setSelectedProcedureMaterials] = useState({});
   const [instrumentSuggestions, setInstrumentSuggestions] = useState({});
   const [itemSuggestions, setItemSuggestions] = useState({});
   const [showInstrumentSuggestions, setShowInstrumentSuggestions] = useState({});
   const [showItemSuggestions, setShowItemSuggestions] = useState({});
   const [highlightedInstrumentIndex, setHighlightedInstrumentIndex] = useState({});
   const [highlightedItemIndex, setHighlightedItemIndex] = useState({});
+
+  // NEW: State for editing procedures and items
+  const [editingProcedureName, setEditingProcedureName] = useState(null);
+  const [editingItemNameKey, setEditingItemNameKey] = useState(null);
+  const [itemEditInputValues, setItemEditInputValues] = useState({});
 
   // Initialize Fuse.js for fuzzy search on items and instruments
   const itemFuse = useRef(null);
@@ -48,7 +56,10 @@ export default function ImplantChecklistApp() {
   useEffect(() => {
     if (procedures.length > 0) {
       const allInstruments = [...new Set(procedures.flatMap(p => p.instruments))]; // Get unique instruments
-      const allItems = [...new Set(procedures.flatMap(p => p.items))]; // Get unique original items
+      const allItems = [...new Set([
+        ...procedures.flatMap(p => p.items),
+        ...procedures.flatMap(p => p.fixedList.map(item => item.name))
+      ])]; // Get unique original items and fixed item names
 
       instrumentFuse.current = new Fuse(allInstruments, {
         threshold: 0.4, // Increased threshold for more forgiving fuzzy search
@@ -153,6 +164,8 @@ export default function ImplantChecklistApp() {
       });
     } else {
       setActiveProcedures((prev) => [...prev, procedure]);
+      // Initialize material for the newly active procedure
+      setSelectedProcedureMaterials(prev => ({ ...prev, [procedure.name]: 'SS' }));
       setCollapsedProcedures((prev) => ({ ...prev, [procedure.name]: false }));
       // When adding a procedure, hide all its item details by default unless they already have selected sizes/qtys
       setShowItemDetails(prev => {
@@ -177,7 +190,8 @@ export default function ImplantChecklistApp() {
   };
 
   const handleItemChange = (procedureName, item) => {
-    const key = `${procedureName}__${item}`;
+    const itemNameBeforeBraces = item.split('{')[0].trim();
+    const key = `${procedureName}__${itemNameBeforeBraces}`;
     setSelectedItems((prev) => {
       if (prev[key]) {
         // Item is currently selected, unselecting it
@@ -421,6 +435,8 @@ export default function ImplantChecklistApp() {
 
               // Keep selectedItems state for editable items, as user selections should persist
               // Keep showItemDetails state for editable items
+              // Also re-initialize material selection for this procedure on refetch
+              setSelectedProcedureMaterials(prev => ({ ...prev, [procedureName]: 'SS' }));
 
               console.log(`Refreshed data for procedure: ${procedureName}`);
             } else {
@@ -591,6 +607,132 @@ export default function ImplantChecklistApp() {
     }
   };
 
+  // NEW: Handle saving edited item name (for both fixed and editable items)
+  const handleSaveItemName = (procedureName, oldItemName, newItemName, isFixed) => {
+      const oldKey = `${procedureName}__${oldItemName}`;
+      const newKey = `${procedureName}__${newItemName}`;
+
+      if (!newItemName.trim()) { // Prevent saving empty names
+          alert('Item name cannot be empty.');
+          return;
+      }
+
+      // Update procedures and activeProcedures state
+      setProcedures(prevProcedures =>
+          prevProcedures.map(proc => {
+              if (proc.name === procedureName) {
+                  if (isFixed) {
+                      return {
+                          ...proc,
+                          fixedList: proc.fixedList.map(fixed =>
+                              fixed.name === oldItemName ? { ...fixed, name: newItemName } : fixed
+                          ),
+                      };
+                  } else {
+                      return {
+                          ...proc,
+                          items: proc.items.map(item => {
+                              const itemNameBeforeBraces = item.split('{')[0].trim();
+                              const restOfItem = item.includes('{') ? '{' + item.split('{')[1] : '';
+                              return itemNameBeforeBraces === oldItemName ? `${newItemName}${restOfItem}` : item;
+                          }),
+                      };
+                  }
+              } else {
+                  return proc;
+              }
+          })
+      );
+
+      setActiveProcedures(prevActiveProcedures =>
+          prevActiveProcedures.map(proc => {
+              if (proc.name === procedureName) {
+                  if (isFixed) {
+                       return {
+                          ...proc,
+                          fixedList: proc.fixedList.map(fixed =>
+                              fixed.name === oldItemName ? { ...fixed, name: newItemName } : fixed
+                          ),
+                      };
+                  } else {
+                      return {
+                          ...proc,
+                          items: proc.items.map(item => {
+                               const itemNameBeforeBraces = item.split('{')[0].trim();
+                               const restOfItem = item.includes('{') ? '{' + item.split('{')[1] : '';
+                               return itemNameBeforeBraces === oldItemName ? `${newItemName}${restOfItem}` : item;
+                          }),
+                      };
+                  }
+              } else {
+                  return proc;
+              }
+          })
+      );
+
+      // Update keys in selectedItems (only for editable items)
+      if (!isFixed && selectedItems[oldKey]) {
+          setSelectedItems(prev => {
+              const { [oldKey]: value, ...rest } = prev;
+              return { ...rest, [newKey]: value };
+          });
+      }
+
+      // Update keys in showItemDetails
+      if (showItemDetails[oldKey]) {
+           setShowItemDetails(prev => {
+               const { [oldKey]: value, ...rest } = prev;
+               return { ...rest, [newKey]: value };
+           });
+      }
+
+      // Update keys in selectedFixedItems (only for fixed items)
+      if (isFixed && selectedFixedItems[oldKey]) {
+           setSelectedFixedItems(prev => {
+               const { [oldKey]: value, ...rest } = prev;
+               return { ...rest, [newKey]: value };
+           });
+      }
+
+      // Update keys in fixedQtyEdits (only for fixed items)
+       if (isFixed && fixedQtyEdits[oldKey]) {
+            setFixedQtyEdits(prev => {
+                const { [oldKey]: value, ...rest } = prev;
+                return { ...rest, [newKey]: value };
+            });
+       }
+
+      // Reset editing state
+      setEditingItemNameKey(null);
+      setItemEditInputValues(prev => { const { [oldKey]: _, ...rest } = prev; return rest; });
+
+      // Re-initialize Fuse.js instances if item names have changed
+      if (procedures.length > 0) {
+          const allInstruments = [...new Set(procedures.flatMap(p => p.instruments))]; // Get unique instruments
+          const allItems = [...new Set([
+            ...procedures.flatMap(p => p.items),
+            ...procedures.flatMap(p => p.fixedList.map(item => item.name))
+          ])]; // Get unique original items and fixed item names
+
+          instrumentFuse.current = new Fuse(allInstruments, {
+            threshold: 0.4, // Increased threshold for more forgiving fuzzy search
+          });
+
+          itemFuse.current = new Fuse(allItems, {
+            threshold: 0.4, // Increased threshold for more forgiving fuzzy search
+            keys: [''], // Search the string elements directly
+            ignoreLocation: true,
+          });
+        }
+
+  };
+
+  // NEW: Handle canceling item name edit
+  const handleCancelItemNameEdit = (key) => {
+      setEditingItemNameKey(null);
+      setItemEditInputValues(prev => { const { [key]: _, ...rest } = prev; return rest; });
+  };
+
   if (!authenticated) {
     return (
       <div style={{
@@ -730,15 +872,6 @@ export default function ImplantChecklistApp() {
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{ flex: 1, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
         />
-        {/* Material Type Dropdown */}
-        <select
-          value={selectedMaterial}
-          onChange={(e) => setSelectedMaterial(e.target.value)}
-          style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
-        >
-          <option value="SS">SS</option>
-          <option value="Titanium">Titanium</option>
-        </select>
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
@@ -800,15 +933,31 @@ export default function ImplantChecklistApp() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ fontSize: 20, fontWeight: 600 }}>{procedure.name} Items</h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select
+                  value={selectedProcedureMaterials[procedure.name] || 'SS'}
+                  onChange={(e) => setSelectedProcedureMaterials(prev => ({ ...prev, [procedure.name]: e.target.value }))}
+                  style={{ padding: '6px 10px', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, appearance: 'none', background: 'white url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.362%22%20height%3D%22292.362%22%3E%3Cpath%20fill%3D%22%23000000%22%20d%3D%22M287.9.9L146.213%20142.6l-141.68-141.7L0%205.193l146.213%20146.213L292.362%205.193z%22%2F%3E%3C%2Fsvg%3E") no-repeat right 8px center / 8px 10px' }}
+                >
+                  <option value="SS">SS</option>
+                  <option value="Titanium">Titanium</option>
+                </select>
                 <button onClick={() => toggleCollapse(procedure.name)} style={{ background: "none", border: "none", cursor: "pointer" }}>
                   {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
                 </button>
                 <button
                   onClick={() => refetchSingleProcedure(procedure.name)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginLeft: 4 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   title={`Refresh ${procedure.name} from sheet`}
                 >
-                  ↻
+                  <RefreshCcw size={18} />
+                </button>
+                      {/* NEW: Edit Procedure Name Button */}
+                      <button
+                   onClick={() => setEditingProcedureName(editingProcedureName === procedure.name ? null : procedure.name)}
+                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: editingProcedureName === procedure.name ? '#2563eb' : '#555', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                   title={editingProcedureName === procedure.name ? `Cancel editing ${procedure.name}` : `Edit ${procedure.name}`}
+                >
+                    <Pencil size={18} />
                 </button>
                 <button
                   onClick={() => {
@@ -825,11 +974,12 @@ export default function ImplantChecklistApp() {
                     // Remove from activeProcedures
                     setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
                   }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', marginLeft: 4 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   title={`Delete ${procedure.name}`}
                 >
                   <Trash2 style={{ width: 20, height: 20 }} />
                 </button>
+          
               </div>
             </div>
             {!collapsedProcedures[procedure.name] &&
@@ -839,21 +989,51 @@ export default function ImplantChecklistApp() {
                   <div style={{ marginBottom: 12 }}>
                     {procedure.fixedList.map((fixed, idx) => {
                       const key = `${procedure.name}__${fixed.name}`;
+                      const isEditing = editingItemNameKey === key;
                       return (
                         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedFixedItems[key] || false}
-                            onChange={() => setSelectedFixedItems(prev => ({ ...prev, [key]: !prev[key] }))}
-                            style={{ accentColor: '#000' }}
-                          />
-                          <span>{selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name}</span>
-                          <input
-                            type="number"
-                            value={fixedQtyEdits[key] ?? fixed.qty}
-                            onChange={e => handleFixedQtyChange(procedure.name, fixed.name, e.target.value)}
-                            style={{ width: 60, padding: 6, border: '1px solid #ccc', borderRadius: 4, background: '#fff', color: '#222' }}
-                          />
+                          {isEditing ? (
+                            <> {/* Edit input and buttons for fixed items */}
+                                <input
+                                    type="text"
+                                    value={itemEditInputValues[key] ?? fixed.name}
+                                    onChange={e => setItemEditInputValues(prev => ({ ...prev, [key]: e.target.value }))}
+                                    style={{ padding: 4, border: '1px solid #ccc', borderRadius: 4, minWidth: 150 }}
+                                />
+                                <button onClick={() => handleSaveItemName(procedure.name, fixed.name, itemEditInputValues[key] ?? fixed.name, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'green' }}>
+                                    ✔️
+                                </button>
+                                <button onClick={() => handleCancelItemNameEdit(key)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'red' }}>
+                                    ❌
+                                </button>
+                            </>
+                          ) : (
+                            <> {/* Normal display for fixed items */}
+                              <input
+                                type="checkbox"
+                                checked={selectedFixedItems[key] || false}
+                                onChange={() => setSelectedFixedItems(prev => ({ ...prev, [key]: !prev[key] }))}
+                                style={{ accentColor: '#000' }}
+                              />
+                              <span>{selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name}</span>
+                              <input
+                                type="number"
+                                value={fixedQtyEdits[key] ?? fixed.qty}
+                                onChange={e => handleFixedQtyChange(procedure.name, fixed.name, e.target.value)}
+                                style={{ width: 60, padding: 6, border: '1px solid #ccc', borderRadius: 4, background: '#fff', color: '#222' }}
+                              />
+                               {/* Pencil for fixed items (visible when procedure editing is active)*/}
+                              {editingProcedureName === procedure.name && (
+                                  <button
+                                      onClick={() => { setEditingItemNameKey(key); setItemEditInputValues(prev => ({ ...prev, [key]: fixed.name })); }}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 14 }}
+                                      title={`Edit ${fixed.name}`}
+                                  >
+                                      ✏️
+                                  </button>
+                              )}
+                            </>
+                          )}
                         </div>
                       );
                     })}
@@ -861,96 +1041,178 @@ export default function ImplantChecklistApp() {
                 )}
                 {/* Editable items */}
                 {procedure.items.map((item) => {
-                  const key = `${procedure.name}__${item}`;
+                  const key = `${procedure.name}__${item.split('{')[0].trim()}`;
                   const isItemSelected = key in selectedItems;
                   const itemHasSizes = isItemSelected && selectedItems[key]?.length > 0;
                   const areDetailsVisible = showItemDetails[key] || false; // Default to false if undefined
+                  const isEditing = editingItemNameKey === key;
+                  const itemNameBeforeBraces = item.split('{')[0].trim();
 
                   return (
                     <div key={key} style={{ margin: "12px 0" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={isItemSelected}
-                          onChange={() => handleItemChange(procedure.name, item)}
-                        />
-                        <span>{selectedMaterial === 'Titanium' ? 'Titanium ' + item.split('{')[0].trim() : item.split('{')[0].trim()}</span>
+                      {isEditing ? (
+                         <> {/* Edit input and buttons for editable items */}
+                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <input
+                                    type="text"
+                                    value={itemEditInputValues[key] ?? itemNameBeforeBraces}
+                                    onChange={e => setItemEditInputValues(prev => ({ ...prev, [key]: e.target.value }))}
+                                    style={{ padding: 4, border: '1px solid #ccc', borderRadius: 4, minWidth: 150 }}
+                                />
+                                <button onClick={() => handleSaveItemName(procedure.name, itemNameBeforeBraces, itemEditInputValues[key] ?? itemNameBeforeBraces, false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'green' }}>
+                                    ✔️
+                                </button>
+                                <button onClick={() => handleCancelItemNameEdit(key)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'red' }}>
+                                    ❌
+                                </button>
+                             </div>
+                              {/* Keep details visible if editing */}
+                             {itemHasSizes && areDetailsVisible && (
+                                 <div style={{ marginLeft: 32, marginTop: 4 }}>
+                                      {selectedItems[key].map((entry, index) => (
+                                          <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                               <input
+                                                  ref={el => {
+                                                      sizeInputRefs.current[`${key}-${index}`] = el;
+                                                      if (
+                                                          focusSizeInput &&
+                                                          focusSizeInput.key === key &&
+                                                          focusSizeInput.index === index &&
+                                                          el
+                                                      ) {
+                                                          el.focus();
+                                                          setFocusSizeInput(null);
+                                                      }
+                                                  }}
+                                                  placeholder="Size"
+                                                  value={entry.size}
+                                                  onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
+                                                  style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                              />
+                                              <input
+                                                  placeholder="Qty"
+                                                  type="number"
+                                                  value={entry.qty}
+                                                  onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
+                                                  style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                              />
+                                              <div style={{ display: "flex", gap: 4 }}>
+                                                  <button
+                                                      style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
+                                                      onClick={() => handleAddSizeQty(key)}
+                                                  >
+                                                      +
+                                                  </button>
+                                                  <button
+                                                      style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
+                                                      onClick={() => handleDeleteSizeQty(key, index)}
+                                                  >
+                                                      <Trash2 style={{ width: 16, height: 16 }} />
+                                                  </button>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                             )}
+                         </>
+                      ) : (
+                        <> {/* Normal display for editable items */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedItems[key]?.length > 0}
+                              onChange={() => handleItemChange(procedure.name, item)}
+                            />
+                            <span>{selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + itemNameBeforeBraces : itemNameBeforeBraces}</span>
 
-                        {/* Show toggle button only if the item is selected */}
-                        {isItemSelected && (
-                          <button
-                            style={{
-                              marginLeft: 8,
-                              padding: "2px 6px",
-                              borderRadius: 4,
-                              background: "#e0e7ff",
-                              border: "none",
-                              cursor: "pointer",
-                              fontSize: 12,
-                              lineHeight: 1,
-                            }}
-                            onClick={() => setShowItemDetails(prev => ({ ...prev, [key]: !prev[key] }))}
-                            title={areDetailsVisible ? "Hide sizes/qtys" : "Show sizes/qtys"}
-                          >
-                            {areDetailsVisible ? 'Hide Sizes' : 'Show Sizes'}
-                          </button>
-                        )}
-
-                        {/* Show Add Size button only if the item is selected AND currently has no sizes */}
-                        {isItemSelected && !itemHasSizes && (
-                           <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
-                            + Add Size
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Show item details (size/qty inputs) only if item is selected, has sizes, AND is toggled on */}
-                      {isItemSelected && itemHasSizes && areDetailsVisible && (
-                        <div style={{ marginLeft: 32, marginTop: 4 }}>
-                          {selectedItems[key].map((entry, index) => (
-                            <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <input
-                                ref={el => {
-                                  sizeInputRefs.current[`${key}-${index}`] = el;
-                                  if (
-                                    focusSizeInput &&
-                                    focusSizeInput.key === key &&
-                                    focusSizeInput.index === index &&
-                                    el
-                                  ) {
-                                    el.focus();
-                                    setFocusSizeInput(null);
-                                  }
+                            {/* Show toggle button only if the item is selected */}
+                            {isItemSelected && (
+                              <button
+                                style={{
+                                  marginLeft: 8,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: "#e0e7ff",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  lineHeight: 1,
                                 }}
-                                placeholder="Size"
-                                value={entry.size}
-                                onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
-                                style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                              />
-                              <input
-                                placeholder="Qty"
-                                type="number"
-                                value={entry.qty}
-                                onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
-                                style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
-                              />
-                              <div style={{ display: "flex", gap: 4 }}>
-                                <button
-                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
-                                  onClick={() => handleAddSizeQty(key)}
-                                >
-                                  +
-                                </button>
-                                <button
-                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
-                                  onClick={() => handleDeleteSizeQty(key, index)}
-                                >
-                                  <Trash2 style={{ width: 16, height: 16 }} />
-                                </button>
+                                onClick={() => setShowItemDetails(prev => ({ ...prev, [key]: !prev[key] }))}
+                                title={areDetailsVisible ? "Hide sizes/qtys" : "Show sizes/qtys"}
+                              >
+                                {areDetailsVisible ? 'Hide Sizes' : 'Show Sizes'}
+                              </button>
+                            )}
+
+                            {/* Show Add Size button only if the item is selected AND currently has no sizes */}
+                            {isItemSelected && !itemHasSizes && (
+                               <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
+                                + Add Size
+                              </button>
+                            )}
+
+                            {/* NEW: Edit Item Name Button (visible when procedure editing is active)*/}
+                            {editingProcedureName === procedure.name && editingItemNameKey !== key && (
+                              <button
+                                 onClick={() => { setEditingItemNameKey(key); setItemEditInputValues(prev => ({ ...prev, [key]: itemNameBeforeBraces })); }}
+                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 14 }}
+                                 title={`Edit ${itemNameBeforeBraces}`}
+                              >
+                                 ✏️
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Show item details (size/qty inputs) only if item is selected, has sizes, AND is toggled on */}
+                          {isItemSelected && itemHasSizes && areDetailsVisible && (
+                             <div style={{ marginLeft: 32, marginTop: 4 }}>
+                                  {selectedItems[key].map((entry, index) => (
+                                      <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                           <input
+                                              ref={el => {
+                                                  sizeInputRefs.current[`${key}-${index}`] = el;
+                                                  if (
+                                                      focusSizeInput &&
+                                                      focusSizeInput.key === key &&
+                                                      focusSizeInput.index === index &&
+                                                      el
+                                                  ) {
+                                                      el.focus();
+                                                      setFocusSizeInput(null);
+                                                  }
+                                              }}
+                                              placeholder="Size"
+                                              value={entry.size}
+                                              onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
+                                              style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                          />
+                                          <input
+                                              placeholder="Qty"
+                                              type="number"
+                                              value={entry.qty}
+                                              onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
+                                              style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                          />
+                                          <div style={{ display: "flex", gap: 4 }}>
+                                              <button
+                                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
+                                                  onClick={() => handleAddSizeQty(key)}
+                                              >
+                                                  +
+                                              </button>
+                                              <button
+                                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
+                                                  onClick={() => handleDeleteSizeQty(key, index)}
+                                              >
+                                                  <Trash2 style={{ width: 16, height: 16 }} />
+                                              </button>
+                                          </div>
+                                      </div>
+                                  ))}
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );
@@ -1206,7 +1468,7 @@ export default function ImplantChecklistApp() {
                 proc.fixedList.forEach(fixed => {
                   const key = `${proc.name}__${fixed.name}`;
                   if (selectedFixedItems[key]) {
-                    const displayedFixedName = selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                    const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
                     lines.push(
                       <div key={key}>
                         {displayedFixedName} - {fixedQtyEdits[key] ?? fixed.qty}
@@ -1218,11 +1480,11 @@ export default function ImplantChecklistApp() {
               }
               // Editable items
               proc.items.forEach(item => {
-                const key = `${proc.name}__${item}`;
+                const key = `${proc.name}__${item.split('{')[0].trim()}`;
                 if (selectedItems[key] && selectedItems[key].length > 0) {
                   // Extract just the item name before {}
                   const itemName = item.split('{')[0].trim();
-                  const displayedItemName = selectedMaterial === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
+                  const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
                   // Group all sizes/qtys for this item
                   const sizeQtys = selectedItems[key]
                     .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
@@ -1363,7 +1625,7 @@ export default function ImplantChecklistApp() {
                         proc.fixedList.forEach((fixed, idx) => {
                           const key = `${proc.name}__${fixed.name}`;
                           if (selectedFixedItems[key]) {
-                            const displayedFixedName = selectedMaterial === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                            const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
                             rows.push(
                               <tr key={key}>
                                 <td>{serial++}</td>
@@ -1376,11 +1638,11 @@ export default function ImplantChecklistApp() {
                       }
                       // Editable items
                       proc.items.forEach(item => {
-                        const key = `${proc.name}__${item}`;
+                        const key = `${proc.name}__${item.split('{')[0].trim()}`;
                         if (selectedItems[key] && selectedItems[key].length > 0) {
                           // Extract just the item name before {}
                           const itemName = item.split('{')[0].trim();
-                          const displayedItemName = selectedMaterial === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
+                          const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
