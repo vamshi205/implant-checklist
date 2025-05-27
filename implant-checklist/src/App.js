@@ -53,6 +53,26 @@ export default function ImplantChecklistApp() {
   const itemFuse = useRef(null);
   const instrumentFuse = useRef(null);
 
+  // Add new state for locking selection
+  // State for controlling visibility of item lock buttons and item locking status
+  const [showItemLocks, setShowItemLocks] = useState({});
+  const [itemLocking, setItemLocking] = useState({});
+  const [showItemLockingDropdown, setShowItemLockingDropdown] = useState({});
+
+  const [refreshingProcedures, setRefreshingProcedures] = useState({});
+
+  // Add this before the refetchSingleProcedure function
+  const animateRefreshButton = (procedureName) => {
+    setRefreshingProcedures(prev => ({ ...prev, [procedureName]: true }));
+    setTimeout(() => {
+      setRefreshingProcedures(prev => {
+        const updated = { ...prev };
+        delete updated[procedureName];
+        return updated;
+      });
+    }, 1000); // Animation duration
+  };
+
   // Effect to initialize Fuse.js instances when procedures data is loaded
   useEffect(() => {
     if (procedures.length > 0) {
@@ -267,7 +287,11 @@ export default function ImplantChecklistApp() {
     setSelectedItems({});
     setActiveProcedures([]);
     setSelectedFixedItems({});
-    setShowItemDetails({}); // Clear item detail visibility state
+    setShowItemDetails({});
+    // Clear all locking related states
+    setShowItemLocks({});
+    setItemLocking({});
+    setShowItemLockingDropdown({});
   };
 
   const handlePrint = () => {
@@ -334,6 +358,7 @@ export default function ImplantChecklistApp() {
 
   // Refetch a single procedure's data from the sheet
   const refetchSingleProcedure = (procedureName) => {
+    animateRefreshButton(procedureName);
     fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
       .then(response => response.text())
       .then(csvText => {
@@ -900,7 +925,7 @@ export default function ImplantChecklistApp() {
         />
       </div>
 
-      {/* Type filter buttons */}
+        {/* Type filter buttons */}
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
         {procedureTypes.map(type => (
           <button
@@ -969,17 +994,47 @@ export default function ImplantChecklistApp() {
                   <option value="SS">SS</option>
                   <option value="Titanium">Titanium</option>
                 </select>
+                <button
+                  onClick={() => setShowItemLocks(prev => ({ ...prev, [procedure.name]: !prev[procedure.name] }))}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    cursor: 'pointer',
+                    padding: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: showItemLocks[procedure.name] ? '#2563eb' : '#666'
+                  }}
+                  title={showItemLocks[procedure.name] ? "Hide locking options" : "Show locking options"}
+                >
+                  🔒
+                </button>
                 <button onClick={() => toggleCollapse(procedure.name)} style={{ background: "none", border: "none", cursor: "pointer" }}>
                   {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
                 </button>
                 <button
                   onClick={() => refetchSingleProcedure(procedure.name)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    cursor: 'pointer', 
+                    color: '#555', 
+                    padding: 4, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    transform: refreshingProcedures[procedure.name] ? 'rotate(360deg)' : 'none',
+                    transition: 'transform 1s ease'
+                  }}
                   title={`Refresh ${procedure.name} from sheet`}
                 >
-                  <RefreshCcw size={18} />
+                  <RefreshCcw 
+                    size={18} 
+                    style={{
+                      animation: refreshingProcedures[procedure.name] ? 'spin 1s linear' : 'none'
+                    }}
+                  />
                 </button>
-                      {/* NEW: Edit Procedure Name Button */}
                       <button
                    onClick={() => setEditingProcedureName(editingProcedureName === procedure.name ? null : procedure.name)}
                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: editingProcedureName === procedure.name ? '#2563eb' : '#555', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -989,25 +1044,169 @@ export default function ImplantChecklistApp() {
                 </button>
                 <button
                   onClick={() => {
-                    // Remove all selected items for this procedure
-                    setSelectedItems(prev => {
-                      const updated = { ...prev };
-                      Object.keys(updated).forEach(key => {
-                        if (key.startsWith(procedure.name + "__")) {
-                          delete updated[key];
-                        }
+                    // First refresh the procedure data
+                    fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vQu2GZRYcJnEjFaDryWHowegMFVkf8xzewGsEKqNLw7onpe1if24LnJrIZAl4CB5QdgVFjE1PqFYmUa/pub?output=csv')
+                      .then(response => response.text())
+                      .then(csvText => {
+                        Papa.parse(csvText, {
+                          header: false,
+                          skipEmptyLines: true,
+                          complete: (results) => {
+                            // After refresh, proceed with deletion
+                            // Remove all selected items for this procedure
+                            setSelectedItems(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            // Clear lock visibility and locking status for this procedure
+                            setShowItemLocks(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+
+                            setItemLocking(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            setShowItemLockingDropdown(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            // Clear fixed items selections and edits
+                            setSelectedFixedItems(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            setFixedQtyEdits(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            // Clear item details visibility
+                            setShowItemDetails(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            // Clear any editing states
+                            if (editingProcedureName === procedure.name) {
+                              setEditingProcedureName(null);
+                            }
+                            setItemEditInputValues(prev => {
+                              const updated = { ...prev };
+                              Object.keys(updated).forEach(key => {
+                                if (key.startsWith(procedure.name + "__")) {
+                                  delete updated[key];
+                                }
+                              });
+                              return updated;
+                            });
+
+                            // Clear any new item/instrument inputs
+                            setNewItemInputs(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+                            setNewInstrumentInputs(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+
+                            // Clear suggestions
+                            setItemSuggestions(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+                            setInstrumentSuggestions(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+
+                            // Clear material selection
+                            setSelectedProcedureMaterials(prev => {
+                              const updated = { ...prev };
+                              delete updated[procedure.name];
+                              return updated;
+                            });
+
+                            // Update procedures state with refreshed data
+                            setProcedures(prev => {
+                              const foundRow = results.data.slice(1).find(([name]) => name && name.trim() === procedure.name);
+                              if (foundRow) {
+                                const [name, items, fixedItems, fixedQty, instruments, type] = foundRow;
+                                const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
+                                const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
+                                const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
+                                const editableItems = items
+                                  ? items.split('|').map(item => item.trim()).filter(Boolean)
+                                  : [];
+                                const updatedProcedure = {
+                                  name: name.trim(),
+                                  items: editableItems,
+                                  fixedList,
+                                  instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+                                  type: type ? type.trim() : 'Others',
+                                };
+                                return prev.map(p => p.name === procedure.name ? updatedProcedure : p);
+                              }
+                              return prev;
+                            });
+
+                            // Finally remove from activeProcedures
+                            setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
+                          }
+                        });
+                      })
+                      .catch(error => {
+                        console.error('Error refreshing procedure before delete:', error);
+                        // If refresh fails, still proceed with deletion
+                        setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
                       });
-                      return updated;
-                    });
-                    // Remove from activeProcedures
-                    setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
                   }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   title={`Delete ${procedure.name}`}
                 >
                   <Trash2 style={{ width: 20, height: 20 }} />
                 </button>
-          
               </div>
             </div>
             {!collapsedProcedures[procedure.name] &&
@@ -1026,7 +1225,15 @@ export default function ImplantChecklistApp() {
                                     type="text"
                                     value={itemEditInputValues[key] ?? fixed.name}
                                     onChange={e => setItemEditInputValues(prev => ({ ...prev, [key]: e.target.value }))}
-                                    style={{ padding: 4, border: '1px solid #ccc', borderRadius: 4, minWidth: 150 }}
+                                    style={{ 
+                                        padding: '4px 8px',
+                                        border: '1px solid #ccc',
+                                        borderRadius: 4,
+                                        fontSize: '14px',
+                                        width: 'auto',
+                                        minWidth: '200px',
+                                        flex: 1
+                                    }}
                                 />
                                 <button onClick={() => handleSaveItemName(procedure.name, fixed.name, itemEditInputValues[key] ?? fixed.name, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'green' }}>
                                     ✔️
@@ -1043,7 +1250,139 @@ export default function ImplantChecklistApp() {
                                 onChange={() => setSelectedFixedItems(prev => ({ ...prev, [key]: !prev[key] }))}
                                 style={{ accentColor: '#000' }}
                               />
-                              <span>{selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name}</span>
+                              <span>
+                                {(() => {
+                                  let displayName = selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                                  if (itemLocking[key]) {
+                                    const words = displayName.split(' ');
+                                    const firstWord = words[0];
+                                    const secondWord = words[1] || '';
+                                    const isSecondWordSpecial = 
+                                      /^\d+$/.test(secondWord) || // Check if second word is a number
+                                      secondWord.toLowerCase() === 'mm' ||
+                                      secondWord.toLowerCase() === 'hole';
+                                    
+                                    if (isSecondWordSpecial) {
+                                      // Insert locking status after the special second word
+                                      const beforeLocking = words.slice(0, 2).join(' ');
+                                      const afterLocking = words.slice(2).join(' ');
+                                      displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                    } else {
+                                      // Original logic for other cases
+                                      const restOfName = displayName.slice(firstWord.length).trim();
+                                      if (restOfName.includes('Locking')) {
+                                        displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                      } else if (!restOfName.includes('Non-Locking')) {
+                                        displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                      }
+                                    }
+                                  }
+                                  return displayName;
+                                })()}
+                              </span>
+                              {showItemLocks[procedure.name] && (
+                                <div style={{ position: 'relative', marginLeft: 4 }}>
+                                  <button
+                                    onClick={() => setShowItemLockingDropdown(prev => ({ ...prev, [key]: !prev[key] }))}
+                                    style={{ 
+                                      background: 'none', 
+                                      border: 'none', 
+                                      cursor: 'pointer',
+                                      padding: '2px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      fontSize: '14px',
+                                      color: itemLocking[key] ? '#2563eb' : '#666'
+                                    }}
+                                    title="Toggle Locking Options"
+                                  >
+                                    {itemLocking[key] === 'Locking' ? '🔒' : itemLocking[key] === 'Non-Locking' ? '🔓' : '🔒'}
+                                  </button>
+                                  {showItemLockingDropdown[key] && (
+                                    <div style={{
+                                      position: 'absolute',
+                                      top: '100%',
+                                      left: 0,
+                                      background: 'white',
+                                      border: '1px solid #ccc',
+                                      borderRadius: 4,
+                                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                      zIndex: 10
+                                    }}>
+                                      <button
+                                        onClick={() => {
+                                          const itemName = fixed.name;
+                                          // If item already has "Locking", don't add it again
+                                          if (itemName.includes('Locking')) {
+                                            setItemLocking(prev => ({ ...prev, [key]: 'Locking' }));
+                                          } else {
+                                            setItemLocking(prev => ({ ...prev, [key]: 'Locking' }));
+                                          }
+                                          setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                        }}
+                                        style={{
+                                          display: 'block',
+                                          width: '100%',
+                                          padding: '8px 12px',
+                                          border: 'none',
+                                          background: 'none',
+                                          cursor: 'pointer',
+                                          textAlign: 'left',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        Locking
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const itemName = fixed.name;
+                                          // If item already has "Locking", replace it with "Non-Locking"
+                                          if (itemName.includes('Locking')) {
+                                            setItemLocking(prev => ({ ...prev, [key]: 'Non-Locking' }));
+                                          } else {
+                                            setItemLocking(prev => ({ ...prev, [key]: 'Non-Locking' }));
+                                          }
+                                          setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                        }}
+                                        style={{
+                                          display: 'block',
+                                          width: '100%',
+                                          padding: '8px 12px',
+                                          border: 'none',
+                                          background: 'none',
+                                          cursor: 'pointer',
+                                          textAlign: 'left',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        Non-Locking
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setItemLocking(prev => {
+                                            const updated = { ...prev };
+                                            delete updated[key];
+                                            return updated;
+                                          });
+                                          setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                        }}
+                                        style={{
+                                          display: 'block',
+                                          width: '100%',
+                                          padding: '8px 12px',
+                                          border: 'none',
+                                          background: 'none',
+                                          cursor: 'pointer',
+                                          textAlign: 'left',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        Clear
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               <input
                                 type="number"
                                 value={fixedQtyEdits[key] ?? fixed.qty}
@@ -1085,7 +1424,15 @@ export default function ImplantChecklistApp() {
                                     type="text"
                                     value={itemEditInputValues[key] ?? itemNameBeforeBraces}
                                     onChange={e => setItemEditInputValues(prev => ({ ...prev, [key]: e.target.value }))}
-                                    style={{ padding: 4, border: '1px solid #ccc', borderRadius: 4, minWidth: 150 }}
+                                    style={{ 
+                                        padding: '4px 8px',
+                                        border: '1px solid #ccc',
+                                        borderRadius: 4,
+                                        fontSize: '14px',
+                                        width: 'auto',
+                                        minWidth: '200px',
+                                        flex: 1
+                                    }}
                                 />
                                 <button onClick={() => handleSaveItemName(procedure.name, itemNameBeforeBraces, itemEditInputValues[key] ?? itemNameBeforeBraces, false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'green' }}>
                                     ✔️
@@ -1151,7 +1498,139 @@ export default function ImplantChecklistApp() {
                               checked={selectedItems[key]?.length > 0}
                               onChange={() => handleItemChange(procedure.name, item)}
                             />
-                            <span>{selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + itemNameBeforeBraces : itemNameBeforeBraces}</span>
+                            <span>
+                              {(() => {
+                                let displayName = selectedProcedureMaterials[procedure.name] === 'Titanium' ? 'Titanium ' + itemNameBeforeBraces : itemNameBeforeBraces;
+                                if (itemLocking[key]) {
+                                  const words = displayName.split(' ');
+                                  const firstWord = words[0];
+                                  const secondWord = words[1] || '';
+                                  const isSecondWordSpecial = 
+                                    /^\d+$/.test(secondWord) || // Check if second word is a number
+                                    secondWord.toLowerCase() === 'mm' ||
+                                    secondWord.toLowerCase() === 'hole';
+                                  
+                                  if (isSecondWordSpecial) {
+                                    // Insert locking status after the special second word
+                                    const beforeLocking = words.slice(0, 2).join(' ');
+                                    const afterLocking = words.slice(2).join(' ');
+                                    displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                  } else {
+                                    // Original logic for other cases
+                                    const restOfName = displayName.slice(firstWord.length).trim();
+                                    if (restOfName.includes('Locking')) {
+                                      displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                    } else if (!restOfName.includes('Non-Locking')) {
+                                      displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                    }
+                                  }
+                                }
+                                return displayName;
+                              })()}
+                            </span>
+                            {showItemLocks[procedure.name] && (
+                              <div style={{ position: 'relative', marginLeft: 4 }}>
+                                <button
+                                  onClick={() => setShowItemLockingDropdown(prev => ({ ...prev, [key]: !prev[key] }))}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    fontSize: '14px',
+                                    color: itemLocking[key] ? '#2563eb' : '#666'
+                                  }}
+                                  title="Toggle Locking Options"
+                                >
+                                  {itemLocking[key] === 'Locking' ? '🔒' : itemLocking[key] === 'Non-Locking' ? '🔓' : '🔒'}
+                                </button>
+                                {showItemLockingDropdown[key] && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    background: 'white',
+                                    border: '1px solid #ccc',
+                                    borderRadius: 4,
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                    zIndex: 10
+                                  }}>
+                                    <button
+                                      onClick={() => {
+                                        const itemName = item.split('{')[0].trim();
+                                        // If item already has "Locking", don't add it again
+                                        if (itemName.includes('Locking')) {
+                                          setItemLocking(prev => ({ ...prev, [key]: 'Locking' }));
+                                        } else {
+                                          setItemLocking(prev => ({ ...prev, [key]: 'Locking' }));
+                                        }
+                                        setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                      }}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        border: 'none',
+                                        background: 'none',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                                                            >
+                                          Locking
+                                        </button>
+                                    <button
+                                      onClick={() => {
+                                        const itemName = item.split('{')[0].trim();
+                                        // If item already has "Locking", replace it with "Non-Locking"
+                                        if (itemName.includes('Locking')) {
+                                          setItemLocking(prev => ({ ...prev, [key]: 'Non-Locking' }));
+                                        } else {
+                                          setItemLocking(prev => ({ ...prev, [key]: 'Non-Locking' }));
+                                        }
+                                        setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                      }}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        border: 'none',
+                                        background: 'none',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                                                            >
+                                          Non-Locking
+                                        </button>
+                                    <button
+                                      onClick={() => {
+                                        setItemLocking(prev => {
+                                          const updated = { ...prev };
+                                          delete updated[key];
+                                          return updated;
+                                        });
+                                        setShowItemLockingDropdown(prev => ({ ...prev, [key]: false }));
+                                      }}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        border: 'none',
+                                        background: 'none',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             {/* Show toggle button only if the item is selected */}
                             {isItemSelected && (
@@ -1520,9 +1999,35 @@ export default function ImplantChecklistApp() {
                   const key = `${proc.name}__${fixed.name}`;
                   if (selectedFixedItems[key]) {
                     const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                    // Add locking text if selected and not already present
+                    let displayName = displayedFixedName;
+                    if (itemLocking[key]) {
+                      const words = displayName.split(' ');
+                      const firstWord = words[0];
+                      const secondWord = words[1] || '';
+                      const isSecondWordSpecial = 
+                        /^\d+$/.test(secondWord) || // Check if second word is a number
+                        secondWord.toLowerCase() === 'mm' ||
+                        secondWord.toLowerCase() === 'hole';
+                      
+                      if (isSecondWordSpecial) {
+                        // Insert locking status after the special second word
+                        const beforeLocking = words.slice(0, 2).join(' ');
+                        const afterLocking = words.slice(2).join(' ');
+                        displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                      } else {
+                        // Original logic for other cases
+                        const restOfName = displayName.slice(firstWord.length).trim();
+                        if (restOfName.includes('Locking')) {
+                          displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                        } else if (!restOfName.includes('Non-Locking')) {
+                          displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                        }
+                      }
+                    }
                     lines.push(
                       <div key={key}>
-                        {displayedFixedName} - {fixedQtyEdits[key] ?? fixed.qty}
+                        {displayName} - {fixedQtyEdits[key] ?? fixed.qty}
                       </div>
                     );
                     hasItems = true;
@@ -1533,17 +2038,41 @@ export default function ImplantChecklistApp() {
               proc.items.forEach(item => {
                 const key = `${proc.name}__${item.split('{')[0].trim()}`;
                 if (selectedItems[key] && selectedItems[key].length > 0) {
-                  // Extract just the item name before {}
                   const itemName = item.split('{')[0].trim();
-                  const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
-                  // Group all sizes/qtys for this item
+                  const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                  // Add locking text if selected and not already present
+                  let displayName = displayedItemName;
+                  if (itemLocking[key]) {
+                    const words = displayName.split(' ');
+                    const firstWord = words[0];
+                    const secondWord = words[1] || '';
+                    const isSecondWordSpecial = 
+                      /^\d+$/.test(secondWord) || // Check if second word is a number
+                      secondWord.toLowerCase() === 'mm' ||
+                      secondWord.toLowerCase() === 'hole';
+                    
+                    if (isSecondWordSpecial) {
+                      // Insert locking status after the special second word
+                      const beforeLocking = words.slice(0, 2).join(' ');
+                      const afterLocking = words.slice(2).join(' ');
+                      displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                    } else {
+                      // Original logic for other cases
+                      const restOfName = displayName.slice(firstWord.length).trim();
+                      if (restOfName.includes('Locking')) {
+                        displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                      } else if (!restOfName.includes('Non-Locking')) {
+                        displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                      }
+                    }
+                  }
                   const sizeQtys = selectedItems[key]
                     .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                     .join(', ');
                   const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
                   lines.push(
                     <div key={proc.name + '-' + item}>
-                      {displayedItemName} {sizeQtys} <b>(Total: {totalQty})</b>
+                      {displayName} {sizeQtys} <b>(Total: {totalQty})</b>
                     </div>
                   );
                   hasItems = true;
@@ -1754,10 +2283,36 @@ export default function ImplantChecklistApp() {
                               const key = `${proc.name}__${fixed.name}`;
                               if (selectedFixedItems[key]) {
                                 const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                                // Add locking text if selected and not already present
+                                let displayName = displayedFixedName;
+                                if (itemLocking[key]) {
+                                  const words = displayName.split(' ');
+                                  const firstWord = words[0];
+                                  const secondWord = words[1] || '';
+                                  const isSecondWordSpecial = 
+                                    /^\d+$/.test(secondWord) || // Check if second word is a number
+                                    secondWord.toLowerCase() === 'mm' ||
+                                    secondWord.toLowerCase() === 'hole';
+                                  
+                                  if (isSecondWordSpecial) {
+                                    // Insert locking status after the special second word
+                                    const beforeLocking = words.slice(0, 2).join(' ');
+                                    const afterLocking = words.slice(2).join(' ');
+                                    displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                  } else {
+                                    // Original logic for other cases
+                                    const restOfName = displayName.slice(firstWord.length).trim();
+                                    if (restOfName.includes('Locking')) {
+                                      displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                    } else if (!restOfName.includes('Non-Locking')) {
+                                      displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                    }
+                                  }
+                                }
                                 rows.push(
                                   <tr key={key}>
                                     <td>{serial++}</td>
-                                    <td>{displayedFixedName}</td>
+                                    <td>{displayName}</td>
                                     <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
                                   </tr>
                                 );
@@ -1769,6 +2324,32 @@ export default function ImplantChecklistApp() {
                             if (selectedItems[key] && selectedItems[key].length > 0) {
                               const itemName = item.split('{')[0].trim();
                               const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                              // Add locking text if selected and not already present
+                              let displayName = displayedItemName;
+                              if (itemLocking[key]) {
+                                const words = displayName.split(' ');
+                                const firstWord = words[0];
+                                const secondWord = words[1] || '';
+                                const isSecondWordSpecial = 
+                                  /^\d+$/.test(secondWord) || // Check if second word is a number
+                                  secondWord.toLowerCase() === 'mm' ||
+                                  secondWord.toLowerCase() === 'hole';
+                                
+                                if (isSecondWordSpecial) {
+                                  // Insert locking status after the special second word
+                                  const beforeLocking = words.slice(0, 2).join(' ');
+                                  const afterLocking = words.slice(2).join(' ');
+                                  displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                } else {
+                                  // Original logic for other cases
+                                  const restOfName = displayName.slice(firstWord.length).trim();
+                                  if (restOfName.includes('Locking')) {
+                                    displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                  } else if (!restOfName.includes('Non-Locking')) {
+                                    displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                  }
+                                }
+                              }
                               const sizeQtys = selectedItems[key]
                                 .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                                 .join(', ');
@@ -1776,7 +2357,7 @@ export default function ImplantChecklistApp() {
                               rows.push(
                                 <tr key={proc.name + '-' + item}>
                                   <td>{serial++}</td>
-                                  <td>{displayedItemName} {sizeQtys}</td>
+                                  <td>{displayName} {sizeQtys}</td>
                                   <td>{totalQty}</td>
                                 </tr>
                               );
@@ -1831,10 +2412,36 @@ export default function ImplantChecklistApp() {
                               const key = `${proc.name}__${fixed.name}`;
                               if (selectedFixedItems[key]) {
                                 const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                                // Add locking text if selected and not already present
+                                let displayName = displayedFixedName;
+                                if (itemLocking[key]) {
+                                  const words = displayName.split(' ');
+                                  const firstWord = words[0];
+                                  const secondWord = words[1] || '';
+                                  const isSecondWordSpecial = 
+                                    /^\d+$/.test(secondWord) || // Check if second word is a number
+                                    secondWord.toLowerCase() === 'mm' ||
+                                    secondWord.toLowerCase() === 'hole';
+                                  
+                                  if (isSecondWordSpecial) {
+                                    // Insert locking status after the special second word
+                                    const beforeLocking = words.slice(0, 2).join(' ');
+                                    const afterLocking = words.slice(2).join(' ');
+                                    displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                  } else {
+                                    // Original logic for other cases
+                                    const restOfName = displayName.slice(firstWord.length).trim();
+                                    if (restOfName.includes('Locking')) {
+                                      displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                    } else if (!restOfName.includes('Non-Locking')) {
+                                      displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                    }
+                                  }
+                                }
                                 rows.push(
                                   <tr key={key + '-2'}>
                                     <td>{serial++}</td>
-                                    <td>{displayedFixedName}</td>
+                                    <td>{displayName}</td>
                                     <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
                                   </tr>
                                 );
@@ -1846,6 +2453,32 @@ export default function ImplantChecklistApp() {
                             if (selectedItems[key] && selectedItems[key].length > 0) {
                               const itemName = item.split('{')[0].trim();
                               const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                              // Add locking text if selected and not already present
+                              let displayName = displayedItemName;
+                              if (itemLocking[key]) {
+                                const words = displayName.split(' ');
+                                const firstWord = words[0];
+                                const secondWord = words[1] || '';
+                                const isSecondWordSpecial = 
+                                  /^\d+$/.test(secondWord) || // Check if second word is a number
+                                  secondWord.toLowerCase() === 'mm' ||
+                                  secondWord.toLowerCase() === 'hole';
+                                
+                                if (isSecondWordSpecial) {
+                                  // Insert locking status after the special second word
+                                  const beforeLocking = words.slice(0, 2).join(' ');
+                                  const afterLocking = words.slice(2).join(' ');
+                                  displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                                } else {
+                                  // Original logic for other cases
+                                  const restOfName = displayName.slice(firstWord.length).trim();
+                                  if (restOfName.includes('Locking')) {
+                                    displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                  } else if (!restOfName.includes('Non-Locking')) {
+                                    displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                  }
+                                }
+                              }
                               const sizeQtys = selectedItems[key]
                                 .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                                 .join(', ');
@@ -1853,7 +2486,7 @@ export default function ImplantChecklistApp() {
                               rows.push(
                                 <tr key={proc.name + '-' + item + '-2'}>
                                   <td>{serial++}</td>
-                                  <td>{displayedItemName} {sizeQtys}</td>
+                                  <td>{displayName} {sizeQtys}</td>
                                   <td>{totalQty}</td>
                                 </tr>
                               );
@@ -1977,10 +2610,36 @@ export default function ImplantChecklistApp() {
                           const key = `${proc.name}__${fixed.name}`;
                           if (selectedFixedItems[key]) {
                             const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                            // Add locking text if selected and not already present
+                            let displayName = displayedFixedName;
+                            if (itemLocking[key]) {
+                              const words = displayName.split(' ');
+                              const firstWord = words[0];
+                              const secondWord = words[1] || '';
+                              const isSecondWordSpecial = 
+                                /^\d+$/.test(secondWord) || // Check if second word is a number
+                                secondWord.toLowerCase() === 'mm' ||
+                                secondWord.toLowerCase() === 'hole';
+                              
+                              if (isSecondWordSpecial) {
+                                // Insert locking status after the special second word
+                                const beforeLocking = words.slice(0, 2).join(' ');
+                                const afterLocking = words.slice(2).join(' ');
+                                displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                              } else {
+                                // Original logic for other cases
+                                const restOfName = displayName.slice(firstWord.length).trim();
+                                if (restOfName.includes('Locking')) {
+                                  displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                                } else if (!restOfName.includes('Non-Locking')) {
+                                  displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                                }
+                              }
+                            }
                             rows.push(
                               <tr key={key}>
                                 <td>{serial++}</td>
-                                <td>{displayedFixedName}</td>
+                                <td>{displayName}</td>
                                 <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
                               </tr>
                             );
@@ -1992,6 +2651,32 @@ export default function ImplantChecklistApp() {
                         if (selectedItems[key] && selectedItems[key].length > 0) {
                           const itemName = item.split('{')[0].trim();
                           const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                          // Add locking text if selected and not already present
+                          let displayName = displayedItemName;
+                          if (itemLocking[key]) {
+                            const words = displayName.split(' ');
+                            const firstWord = words[0];
+                            const secondWord = words[1] || '';
+                            const isSecondWordSpecial = 
+                              /^\d+$/.test(secondWord) || // Check if second word is a number
+                              secondWord.toLowerCase() === 'mm' ||
+                              secondWord.toLowerCase() === 'hole';
+                            
+                            if (isSecondWordSpecial) {
+                              // Insert locking status after the special second word
+                              const beforeLocking = words.slice(0, 2).join(' ');
+                              const afterLocking = words.slice(2).join(' ');
+                              displayName = `${beforeLocking} ${itemLocking[key]} ${afterLocking}`.trim();
+                            } else {
+                              // Original logic for other cases
+                              const restOfName = displayName.slice(firstWord.length).trim();
+                              if (restOfName.includes('Locking')) {
+                                displayName = `${firstWord} ${restOfName.replace('Locking', itemLocking[key])}`;
+                              } else if (!restOfName.includes('Non-Locking')) {
+                                displayName = `${firstWord} ${itemLocking[key]} ${restOfName}`;
+                              }
+                            }
+                          }
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
@@ -1999,7 +2684,7 @@ export default function ImplantChecklistApp() {
                           rows.push(
                             <tr key={proc.name + '-' + item}>
                               <td>{serial++}</td>
-                              <td>{displayedItemName} {sizeQtys}</td>
+                              <td>{displayName} {sizeQtys}</td>
                               <td>{totalQty}</td>
                             </tr>
                           );
@@ -2039,6 +2724,18 @@ export default function ImplantChecklistApp() {
           </div>
         </div>
       )}
+
+      {/* Add this style block near the top of the component, where other styles are defined */}
+      <style>{`
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
     </div>
   );
 }
