@@ -3,8 +3,6 @@ import Papa from "papaparse";
 import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import Fuse from "fuse.js";
 import html2pdf from "html2pdf.js";
-
-// NEW: Import additional Lucide icons
 import { Pencil, RefreshCcw } from "lucide-react";
 
 export default function ImplantChecklistApp() {
@@ -866,11 +864,15 @@ export default function ImplantChecklistApp() {
           }
         }
       `}</style>
-      {/* End responsive styles */}
 
+      {/* Main content */}
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 28, fontWeight: "bold", textAlign: "center", width: "100%", marginBottom: 32 }}>SRR Ortho Implant DC Generator</h1>
+        <h1 style={{ fontSize: 28, fontWeight: "bold", textAlign: "center", width: "100%", marginBottom: 32 }}>
+          SRR Ortho Implant DC Generator
+        </h1>
       </div>
+
+      {/* Hospital and DC inputs */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <input
           className="responsive-input"
@@ -888,6 +890,7 @@ export default function ImplantChecklistApp() {
         />
       </div>
 
+      {/* Search input */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <input
           placeholder="Search Procedures"
@@ -897,8 +900,8 @@ export default function ImplantChecklistApp() {
         />
       </div>
 
+      {/* Type filter buttons */}
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, gap: 8 }} className="responsive-row">
-        {/* Type filter buttons */}
         {procedureTypes.map(type => (
           <button
             key={type}
@@ -928,6 +931,7 @@ export default function ImplantChecklistApp() {
         </button>
       </div>
 
+      {/* Procedures grid */}
       {(showProcedures || searchQuery.trim() !== "") && (
         <div className="procedure-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
           {typeFilteredProcedures.map((procedure) => (
@@ -950,6 +954,7 @@ export default function ImplantChecklistApp() {
         </div>
       )}
 
+      {/* Active procedures */}
       {activeProcedures.map((procedure) => (
         <div key={procedure.name} style={{ marginTop: 24, border: "1px solid #eee", borderRadius: 8, background: "#fafbfc" }}>
           <div style={{ padding: 16 }}>
@@ -1437,6 +1442,7 @@ export default function ImplantChecklistApp() {
         </div>
       ))}
 
+      {/* Action buttons */}
       {activeProcedures.length > 0 && (
         <div style={{ marginTop: 32, display: "flex", gap: 16 }}>
           <button
@@ -1500,6 +1506,7 @@ export default function ImplantChecklistApp() {
         </div>
       )}
 
+      {/* Summary section */}
       {activeProcedures.length > 0 && (
         <div style={{ marginTop: 24, background: '#f8fafc', borderRadius: 8, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
           <h3 style={{ fontWeight: 600, marginBottom: 12 }}>Summary</h3>
@@ -1558,6 +1565,7 @@ export default function ImplantChecklistApp() {
         </div>
       )}
 
+      {/* Hospital Modal */}
       {showHospitalModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
           <div className="responsive-modal" style={{ background: "white", padding: 24, borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", maxWidth: 400, width: "100%", minWidth: 0 }}>
@@ -1601,13 +1609,16 @@ export default function ImplantChecklistApp() {
       {showPartPrintPreview && (
         <div data-print-modal style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'white', borderRadius: 8, maxWidth: '95vw', width: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
-            <div id="part-print-preview-content" ref={partPrintRef}>
-              {/* Print-specific styles for landscape and two tables */}
+            <div id="part-print-preview-content" ref={partPrintRef} style={{ maxHeight: '100vh', overflow: 'hidden' }}>
               <style>{`
+                @page { size: landscape; }
                 @media print {
                   @page {
                     size: landscape;
-                    margin: 0.5in;
+                    margin: 0.8cm;
+                  }
+                  @page :first {
+                    margin: 0.8cm;
                   }
                   body * { visibility: hidden !important; }
                   #part-print-preview-content, #part-print-preview-content * {
@@ -1621,43 +1632,105 @@ export default function ImplantChecklistApp() {
                     height: 100vh !important;
                     background: white !important;
                     z-index: 9999 !important;
-                    overflow: visible !important;
+                    overflow: hidden !important;
                     box-shadow: none !important;
                     padding: 0 !important;
                     margin: 0 !important;
+                    font-size: 10px !important;
+                  }
+                  #part-print-preview-content h2 {
+                    font-size: 13px !important;
+                    margin-bottom: 4px !important;
+                    font-weight: bold !important;
+                  }
+                  #part-print-preview-content .header-info {
+                    font-size: 11px !important;
+                    margin-bottom: 4px !important;
                   }
                   .print-table {
-                    page-break-inside: avoid;
-                    width: 48% !important;
+                    page-break-inside: avoid !important;
+                    width: 45% !important;
+                    max-height: calc(100vh - 2cm) !important;
                   }
                   .print-table-container {
                     display: flex !important;
                     justify-content: space-between !important;
                     width: 100% !important;
+                    gap: 1cm !important;
+                    padding: 0 0.8cm !important;
+                  }
+                  .print-table table {
+                    margin-bottom: 4px !important;
+                    width: 100% !important;
+                    border-spacing: 0 !important;
+                  }
+                  .signature-section {
+                    padding-top: 10px !important;
+                    font-size: 10px !important;
                   }
                   [data-print-modal] {
                     all: unset !important;
                     display: block !important;
+                  }
+                  tr { 
+                    page-break-inside: avoid !important; 
+                  }
+                  td { 
+                    line-height: 1.1 !important;
+                    padding: 3px 4px !important;
+                  }
+                  th {
+                    padding: 3px 4px !important;
+                  }
+                  * {
+                    -webkit-print-color-adjust: exact !important;
+                    color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                   }
                 }
                 #part-print-preview-content table, #part-print-preview-content th, #part-print-preview-content td {
                   border: 1px solid #222;
                   border-collapse: collapse;
                 }
-                #part-print-preview-content th, #part-print-preview-content td {
-                  padding: 8px;
+                #part-print-preview-content th {
+                  padding: 4px;
+                  font-size: 11px;
+                  background: #f1f5f9;
+                }
+                #part-print-preview-content td {
+                  padding: 4px;
+                  font-size: 11px;
+                }
+                #part-print-preview-content .procedure-heading {
+                  background: #f1f5f9;
+                  font-weight: bold;
+                  font-size: 11px;
+                }
+                #part-print-preview-content .instruments-heading {
+                  background: #e0e7ff;
+                  font-weight: bold;
+                  font-size: 11px;
                 }
               `}</style>
-              
-              <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 16 }}>SUMMARY</h2>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ fontWeight: 600 }}>Hospital: {hospitalName}</span>
-                <span style={{ fontWeight: 600 }}>DC No: {dcNo}</span>
+              <div className="part-print-container" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', gap: '1cm', padding: '0 0.8cm' }}>
+                <div style={{ width: '45%' }}>
+                  <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 8 }}>DELIVERY CHALLAN</h2>
+                  <div className="header-info" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600 }}>Hospital: {hospitalName}</span>
+                    <span style={{ fontWeight: 600 }}>DC No: {dcNo}</span>
+                  </div>
+                </div>
+                <div style={{ width: '45%' }}>
+                  <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 8 }}>DELIVERY CHALLAN</h2>
+                  <div className="header-info" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600 }}>Hospital: {hospitalName}</span>
+                    <span style={{ fontWeight: 600 }}>DC No: {dcNo}</span>
+                  </div>
+                </div>
               </div>
-
-              <div className="print-table-container" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div className="part-print-container" style={{ display: 'flex', justifyContent: 'space-between', gap: '1cm', padding: '0 0.8cm' }}>
                 {/* Left Table */}
-                <div className="print-table" style={{ width: '48%' }}>
+                <div className="print-table" style={{ width: '45%' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                     <thead>
                       <tr>
@@ -1727,14 +1800,14 @@ export default function ImplantChecklistApp() {
                       })()}
                     </tbody>
                   </table>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '40px 0 0 0' }}>
+                  <div className="signature-section" style={{ display: 'flex', justifyContent: 'space-between', padding: '20px 0 0 0' }}>
                     <div>Receiver's Sign</div>
                     <div>Authorized Sign</div>
                   </div>
                 </div>
 
                 {/* Right Table (Duplicate) */}
-                <div className="print-table" style={{ width: '48%' }}>
+                <div className="print-table" style={{ width: '45%' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                     <thead>
                       <tr>
@@ -1804,7 +1877,7 @@ export default function ImplantChecklistApp() {
                       })()}
                     </tbody>
                   </table>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '40px 0 0 0' }}>
+                  <div className="signature-section" style={{ display: 'flex', justifyContent: 'space-between', padding: '20px 0 0 0' }}>
                     <div>Receiver's Sign</div>
                     <div>Authorized Sign</div>
                   </div>
@@ -1816,7 +1889,16 @@ export default function ImplantChecklistApp() {
                 setShowPartPrintPreview(false);
                 setRequestedPrintType(null);
               }} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
-              <button onClick={() => window.print()} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
+              <button onClick={() => {
+                const printContent = document.querySelector('#part-print-preview-content');
+                const originalStyle = printContent.style.cssText;
+                printContent.style.height = '100vh';
+                printContent.style.overflow = 'hidden';
+                window.print();
+                setTimeout(() => {
+                  printContent.style.cssText = originalStyle;
+                }, 500);
+              }} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
             </div>
           </div>
         </div>
@@ -1828,8 +1910,6 @@ export default function ImplantChecklistApp() {
           <div style={{ background: 'white', borderRadius: 8, maxWidth: 900, width: '98vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
             <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 16 }}>SUMMARY</h2>
             <div id="print-preview-content" ref={printRef}>
-           
-              {/* Print-specific styles for table borders and full-page print */}
               <style>{`
                 #print-preview-content table, #print-preview-content th, #print-preview-content td {
                   border: 1px solid #222;
@@ -1887,13 +1967,11 @@ export default function ImplantChecklistApp() {
                     let serial = 1;
                     const rows = [];
                     activeProcedures.forEach(proc => {
-                      // Procedure heading
                       rows.push(
                         <tr key={proc.name + '-heading'}>
                           <td colSpan={3} style={{ background: '#f1f5f9', fontWeight: 'bold' }}>{proc.name}</td>
                         </tr>
                       );
-                      // Fixed items
                       if (proc.fixedList && proc.fixedList.length > 0) {
                         proc.fixedList.forEach((fixed, idx) => {
                           const key = `${proc.name}__${fixed.name}`;
@@ -1909,13 +1987,11 @@ export default function ImplantChecklistApp() {
                           }
                         });
                       }
-                      // Editable items
                       proc.items.forEach(item => {
                         const key = `${proc.name}__${item.split('{')[0].trim()}`;
                         if (selectedItems[key] && selectedItems[key].length > 0) {
-                          // Extract just the item name before {}
                           const itemName = item.split('{')[0].trim();
-                          const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName; // Apply material prefix
+                          const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
                           const sizeQtys = selectedItems[key]
                             .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
                             .join(', ');
@@ -1929,7 +2005,6 @@ export default function ImplantChecklistApp() {
                           );
                         }
                       });
-                      // Instruments
                       if (proc.instruments && proc.instruments.length > 0) {
                         rows.push(
                           <tr key={proc.name + '-inst-heading'}>
