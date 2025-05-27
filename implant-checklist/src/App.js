@@ -21,6 +21,7 @@ export default function ImplantChecklistApp() {
   const [collapsedProcedures, setCollapsedProcedures] = useState({});
   const [dcNo, setDcNo] = useState("");
   const printRef = useRef();
+  const partPrintRef = useRef();
   const [showProcedures, setShowProcedures] = useState(false);
   const [newInstrumentInputs, setNewInstrumentInputs] = useState({});
   const [fixedQtyEdits, setFixedQtyEdits] = useState({});
@@ -28,6 +29,8 @@ export default function ImplantChecklistApp() {
   const [showHospitalModal, setShowHospitalModal] = useState(false);
   const [pendingPDF, setPendingPDF] = useState(false);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showPartPrintPreview, setShowPartPrintPreview] = useState(false);
+  const [requestedPrintType, setRequestedPrintType] = useState(null); // 'regular' or 'part'
   const [focusSizeInput, setFocusSizeInput] = useState(null);
   const sizeInputRefs = useRef({});
   const [newItemInputs, setNewItemInputs] = useState({});
@@ -270,12 +273,27 @@ export default function ImplantChecklistApp() {
   };
 
   const handlePrint = () => {
+    setRequestedPrintType('regular');
     if (!hospitalName.trim() || !dcNo.trim()) {
       setShowHospitalModal(true);
       setPendingPDF(false);
+      setShowPrintPreview(false);
+      setShowPartPrintPreview(false);
       return;
     }
     setShowPrintPreview(true);
+  };
+
+  const handlePartPrint = () => {
+    setRequestedPrintType('part');
+    if (!hospitalName.trim() || !dcNo.trim()) {
+      setShowHospitalModal(true);
+      setPendingPDF(false);
+      setShowPrintPreview(false);
+      setShowPartPrintPreview(false);
+      return;
+    }
+    setShowPartPrintPreview(true);
   };
 
   const formatText = (text) => {
@@ -596,14 +614,19 @@ export default function ImplantChecklistApp() {
 
   // Actually generate PDF after hospital name is entered
   const doSavePDF = () => {
-    if (printRef.current) {
+    const targetRef = showPartPrintPreview ? partPrintRef : printRef;
+    if (targetRef.current) {
       const options = {
         margin: 0.5,
         filename: `SRR-Ortho-Implant-DC-${dcNo || 'Summary'}.pdf`,
         html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+        jsPDF: { 
+          unit: 'in', 
+          format: 'a4', 
+          orientation: showPartPrintPreview ? 'landscape' : 'portrait' 
+        },
       };
-      html2pdf().set(options).from(printRef.current).save();
+      html2pdf().set(options).from(targetRef.current).save();
     }
   };
 
@@ -1438,6 +1461,27 @@ export default function ImplantChecklistApp() {
             <span role="img" aria-label="Print">🖨️</span> Print
           </button>
           <button
+            onClick={handlePartPrint}
+            style={{
+              padding: "10px 24px",
+              borderRadius: 6,
+              background: "#000",
+              color: "#fff",
+              border: "none",
+              fontWeight: 500,
+              fontSize: 16,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              transition: "background 0.2s"
+            }}
+            onMouseOver={e => e.currentTarget.style.background = "#1e293b"}
+            onMouseOut={e => e.currentTarget.style.background = "#000"}
+          >
+            <span role="img" aria-label="Print">🖨️</span> Part Printing
+          </button>
+          <button
             onClick={handleSavePDF}
             style={{
               padding: "10px 24px",
@@ -1539,11 +1583,240 @@ export default function ImplantChecklistApp() {
                   setShowHospitalModal(false);
                   if (pendingPDF) {
                     doSavePDF();
+                  } else if (requestedPrintType === 'part') {
+                    setShowPartPrintPreview(true);
+                    setShowPrintPreview(false);
                   } else {
                     setShowPrintPreview(true);
+                    setShowPartPrintPreview(false);
                   }
                 }
               }} style={{ padding: "6px 12px", borderRadius: 4, background: "#000", color: "white", border: "none" }} disabled={!hospitalName.trim() || !dcNo.trim()}>Continue</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Part Print Preview Modal */}
+      {showPartPrintPreview && (
+        <div data-print-modal style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: 8, maxWidth: '95vw', width: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
+            <div id="part-print-preview-content" ref={partPrintRef}>
+              {/* Print-specific styles for landscape and two tables */}
+              <style>{`
+                @media print {
+                  @page {
+                    size: landscape;
+                    margin: 0.5in;
+                  }
+                  body * { visibility: hidden !important; }
+                  #part-print-preview-content, #part-print-preview-content * {
+                    visibility: visible !important;
+                  }
+                  #part-print-preview-content {
+                    position: fixed !important;
+                    left: 0 !important;
+                    top: 0 !important;
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    background: white !important;
+                    z-index: 9999 !important;
+                    overflow: visible !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                  }
+                  .print-table {
+                    page-break-inside: avoid;
+                    width: 48% !important;
+                  }
+                  .print-table-container {
+                    display: flex !important;
+                    justify-content: space-between !important;
+                    width: 100% !important;
+                  }
+                  [data-print-modal] {
+                    all: unset !important;
+                    display: block !important;
+                  }
+                }
+                #part-print-preview-content table, #part-print-preview-content th, #part-print-preview-content td {
+                  border: 1px solid #222;
+                  border-collapse: collapse;
+                }
+                #part-print-preview-content th, #part-print-preview-content td {
+                  padding: 8px;
+                }
+              `}</style>
+              
+              <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 16 }}>SUMMARY</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ fontWeight: 600 }}>Hospital: {hospitalName}</span>
+                <span style={{ fontWeight: 600 }}>DC No: {dcNo}</span>
+              </div>
+
+              <div className="print-table-container" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                {/* Left Table */}
+                <div className="print-table" style={{ width: '48%' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+                    <thead>
+                      <tr>
+                        <th>Sl No</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        let serial = 1;
+                        const rows = [];
+                        activeProcedures.forEach(proc => {
+                          rows.push(
+                            <tr key={proc.name + '-heading'}>
+                              <td colSpan={3} style={{ background: '#f1f5f9', fontWeight: 'bold' }}>{proc.name}</td>
+                            </tr>
+                          );
+                          if (proc.fixedList && proc.fixedList.length > 0) {
+                            proc.fixedList.forEach(fixed => {
+                              const key = `${proc.name}__${fixed.name}`;
+                              if (selectedFixedItems[key]) {
+                                const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                                rows.push(
+                                  <tr key={key}>
+                                    <td>{serial++}</td>
+                                    <td>{displayedFixedName}</td>
+                                    <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
+                                  </tr>
+                                );
+                              }
+                            });
+                          }
+                          proc.items.forEach(item => {
+                            const key = `${proc.name}__${item.split('{')[0].trim()}`;
+                            if (selectedItems[key] && selectedItems[key].length > 0) {
+                              const itemName = item.split('{')[0].trim();
+                              const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                              const sizeQtys = selectedItems[key]
+                                .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
+                                .join(', ');
+                              const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+                              rows.push(
+                                <tr key={proc.name + '-' + item}>
+                                  <td>{serial++}</td>
+                                  <td>{displayedItemName} {sizeQtys}</td>
+                                  <td>{totalQty}</td>
+                                </tr>
+                              );
+                            }
+                          });
+                          if (proc.instruments && proc.instruments.length > 0) {
+                            rows.push(
+                              <tr key={proc.name + '-inst-heading'}>
+                                <td colSpan={3} style={{ background: '#e0e7ff', fontWeight: 'bold' }}>Instruments</td>
+                              </tr>
+                            );
+                            rows.push(
+                              <tr key={proc.name + '-inst-row'}>
+                                <td>{serial++}</td>
+                                <td colSpan={2}>{proc.instruments.join(', ')}</td>
+                              </tr>
+                            );
+                          }
+                        });
+                        return rows;
+                      })()}
+                    </tbody>
+                  </table>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '40px 0 0 0' }}>
+                    <div>Receiver's Sign</div>
+                    <div>Authorized Sign</div>
+                  </div>
+                </div>
+
+                {/* Right Table (Duplicate) */}
+                <div className="print-table" style={{ width: '48%' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+                    <thead>
+                      <tr>
+                        <th>Sl No</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        let serial = 1;
+                        const rows = [];
+                        activeProcedures.forEach(proc => {
+                          rows.push(
+                            <tr key={proc.name + '-heading-2'}>
+                              <td colSpan={3} style={{ background: '#f1f5f9', fontWeight: 'bold' }}>{proc.name}</td>
+                            </tr>
+                          );
+                          if (proc.fixedList && proc.fixedList.length > 0) {
+                            proc.fixedList.forEach(fixed => {
+                              const key = `${proc.name}__${fixed.name}`;
+                              if (selectedFixedItems[key]) {
+                                const displayedFixedName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + fixed.name : fixed.name;
+                                rows.push(
+                                  <tr key={key + '-2'}>
+                                    <td>{serial++}</td>
+                                    <td>{displayedFixedName}</td>
+                                    <td>{fixedQtyEdits[key] ?? fixed.qty}</td>
+                                  </tr>
+                                );
+                              }
+                            });
+                          }
+                          proc.items.forEach(item => {
+                            const key = `${proc.name}__${item.split('{')[0].trim()}`;
+                            if (selectedItems[key] && selectedItems[key].length > 0) {
+                              const itemName = item.split('{')[0].trim();
+                              const displayedItemName = selectedProcedureMaterials[proc.name] === 'Titanium' ? 'Titanium ' + itemName : itemName;
+                              const sizeQtys = selectedItems[key]
+                                .map(entry => `${entry.size || ''}${entry.size ? '-' : ''}${entry.qty}`)
+                                .join(', ');
+                              const totalQty = selectedItems[key].reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+                              rows.push(
+                                <tr key={proc.name + '-' + item + '-2'}>
+                                  <td>{serial++}</td>
+                                  <td>{displayedItemName} {sizeQtys}</td>
+                                  <td>{totalQty}</td>
+                                </tr>
+                              );
+                            }
+                          });
+                          if (proc.instruments && proc.instruments.length > 0) {
+                            rows.push(
+                              <tr key={proc.name + '-inst-heading-2'}>
+                                <td colSpan={3} style={{ background: '#e0e7ff', fontWeight: 'bold' }}>Instruments</td>
+                              </tr>
+                            );
+                            rows.push(
+                              <tr key={proc.name + '-inst-row-2'}>
+                                <td>{serial++}</td>
+                                <td colSpan={2}>{proc.instruments.join(', ')}</td>
+                              </tr>
+                            );
+                          }
+                        });
+                        return rows;
+                      })()}
+                    </tbody>
+                  </table>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '40px 0 0 0' }}>
+                    <div>Receiver's Sign</div>
+                    <div>Authorized Sign</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+              <button onClick={() => {
+                setShowPartPrintPreview(false);
+                setRequestedPrintType(null);
+              }} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
+              <button onClick={() => window.print()} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
             </div>
           </div>
         </div>
@@ -1681,7 +1954,10 @@ export default function ImplantChecklistApp() {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
-              <button onClick={() => setShowPrintPreview(false)} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
+              <button onClick={() => {
+                setShowPrintPreview(false);
+                setRequestedPrintType(null);
+              }} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
               <button onClick={doSavePDF} style={{ padding: '8px 20px', borderRadius: 4, background: '#2563eb', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Download PDF</button>
               <button onClick={() => window.print()} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
             </div>
