@@ -1053,16 +1053,16 @@ export default function ImplantChecklistApp() {
                           skipEmptyLines: true,
                           complete: (results) => {
                             // After refresh, proceed with deletion
-                            // Remove all selected items for this procedure
-                            setSelectedItems(prev => {
-                              const updated = { ...prev };
-                              Object.keys(updated).forEach(key => {
-                                if (key.startsWith(procedure.name + "__")) {
-                                  delete updated[key];
-                                }
-                              });
-                              return updated;
-                            });
+                    // Remove all selected items for this procedure
+                    setSelectedItems(prev => {
+                      const updated = { ...prev };
+                      Object.keys(updated).forEach(key => {
+                        if (key.startsWith(procedure.name + "__")) {
+                          delete updated[key];
+                        }
+                      });
+                      return updated;
+                    });
 
                             // Clear lock visibility and locking status for this procedure
                             setShowItemLocks(prev => {
@@ -1192,7 +1192,7 @@ export default function ImplantChecklistApp() {
                             });
 
                             // Finally remove from activeProcedures
-                            setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
+                    setActiveProcedures(prev => prev.filter(p => p.name !== procedure.name));
                           }
                         });
                       })
@@ -2144,10 +2144,10 @@ export default function ImplantChecklistApp() {
                 @media print {
                   @page {
                     size: landscape;
-                    margin: 0.8cm;
+                    margin: 0.5cm;
                   }
                   @page :first {
-                    margin: 0.8cm;
+                    margin: 0.5cm;
                   }
                   body * { visibility: hidden !important; }
                   #part-print-preview-content, #part-print-preview-content * {
@@ -2157,45 +2157,50 @@ export default function ImplantChecklistApp() {
                     position: fixed !important;
                     left: 0 !important;
                     top: 0 !important;
-                    width: 100vw !important;
-                    height: 100vh !important;
+                    width: 100% !important;
+                    height: 100% !important;
                     background: white !important;
                     z-index: 9999 !important;
                     overflow: hidden !important;
                     box-shadow: none !important;
                     padding: 0 !important;
                     margin: 0 !important;
-                    font-size: 10px !important;
+                    font-size: 9px !important;
                   }
                   #part-print-preview-content h2 {
-                    font-size: 13px !important;
+                    font-size: 12px !important;
                     margin-bottom: 4px !important;
                     font-weight: bold !important;
                   }
                   #part-print-preview-content .header-info {
-                    font-size: 11px !important;
+                    font-size: 10px !important;
                     margin-bottom: 4px !important;
                   }
                   .print-table {
                     page-break-inside: avoid !important;
-                    width: 45% !important;
-                    max-height: calc(100vh - 2cm) !important;
+                    width: 48% !important;
+                    max-height: none !important;
                   }
                   .print-table-container {
                     display: flex !important;
                     justify-content: space-between !important;
                     width: 100% !important;
-                    gap: 1cm !important;
-                    padding: 0 0.8cm !important;
+                    gap: 0.5cm !important;
+                    padding: 0 !important;
                   }
                   .print-table table {
                     margin-bottom: 4px !important;
                     width: 100% !important;
                     border-spacing: 0 !important;
                   }
+                  .print-table td, .print-table th {
+                    padding: 2px 4px !important;
+                    font-size: 9px !important;
+                    line-height: 1.1 !important;
+                  }
                   .signature-section {
-                    padding-top: 10px !important;
-                    font-size: 10px !important;
+                    padding-top: 8px !important;
+                    font-size: 9px !important;
                   }
                   [data-print-modal] {
                     all: unset !important;
@@ -2203,13 +2208,6 @@ export default function ImplantChecklistApp() {
                   }
                   tr { 
                     page-break-inside: avoid !important; 
-                  }
-                  td { 
-                    line-height: 1.1 !important;
-                    padding: 3px 4px !important;
-                  }
-                  th {
-                    padding: 3px 4px !important;
                   }
                   * {
                     -webkit-print-color-adjust: exact !important;
