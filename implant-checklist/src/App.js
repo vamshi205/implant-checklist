@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
-import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, ChevronDown, ChevronUp, Info } from "lucide-react";
 import Fuse from "fuse.js";
 import html2pdf from "html2pdf.js";
 
@@ -39,6 +39,20 @@ export default function ImplantChecklistApp() {
   const [showItemSuggestions, setShowItemSuggestions] = useState({});
   const [highlightedInstrumentIndex, setHighlightedInstrumentIndex] = useState({});
   const [highlightedItemIndex, setHighlightedItemIndex] = useState({});
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedInstrumentImage, setSelectedInstrumentImage] = useState({ instrument: '', imageUrl: '', fallbackUrls: null });
+  const [currentImageError, setCurrentImageError] = useState(false);
+
+  // Instrument image mapping - fallback if not in Google Sheets
+  // Format: "Instrument Name": "Image URL"
+  // You can add Google Drive URLs here: https://drive.google.com/uc?export=view&id=FILE_ID
+  const instrumentImageMap = {
+    // Example entries (replace with your actual image URLs):
+    // "Drill": "https://drive.google.com/uc?export=view&id=YOUR_FILE_ID",
+    // "Forceps": "https://drive.google.com/uc?export=view&id=YOUR_FILE_ID",
+    // Add your instrument image here - replace "Your Instrument Name" with the actual instrument name
+    // "Your Instrument Name": "https://drive.google.com/uc?export=view&id=1DXP1Vawl4-B_LPNc5WcWwWQno62BNRGE",
+  };
 
   // Initialize Fuse.js for fuzzy search on items and instruments
   const itemFuse = useRef(null);
@@ -71,7 +85,10 @@ export default function ImplantChecklistApp() {
           header: false,
           skipEmptyLines: true,
           complete: (results) => {
-            const parsedProcedures = results.data.slice(1).map(([name, items, fixedItems, fixedQty, instruments, type]) => {
+            const parsedProcedures = results.data.slice(1).map((row) => {
+              // Support 6 columns (original) or 7 columns (with instrument images)
+              const [name, items, fixedItems, fixedQty, instruments, type, instrumentImages] = row;
+              
               // Parse fixed items and qtys strictly by | only
               const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
@@ -80,11 +97,23 @@ export default function ImplantChecklistApp() {
               const editableItems = items
                 ? items.split('|').map(item => item.trim()).filter(Boolean)
                 : [];
+              
+              // Parse instruments and their images
+              const instrumentsArr = instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [];
+              const instrumentImagesArr = instrumentImages ? instrumentImages.split('|').map(url => url.trim()).filter(Boolean) : [];
+              
+              // Create instrument-image mapping for this procedure
+              const instrumentImageMapping = {};
+              instrumentsArr.forEach((inst, idx) => {
+                instrumentImageMapping[inst] = instrumentImagesArr[idx] || instrumentImageMap[inst] || null;
+              });
+              
               return {
                 name: name.trim(),
                 items: editableItems,
                 fixedList,
-                instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+                instruments: instrumentsArr,
+                instrumentImageMapping, // Map of instrument name -> image URL
                 type: type ? type.trim() : 'Others',
               };
             });
@@ -313,18 +342,30 @@ export default function ImplantChecklistApp() {
           complete: (results) => {
             const foundRow = results.data.slice(1).find(([name]) => name && name.trim() === procedureName);
             if (foundRow) {
-              const [name, items, fixedItems, fixedQty, instruments, type] = foundRow;
+              const [name, items, fixedItems, fixedQty, instruments, type, instrumentImages] = foundRow;
               const fixedItemsArr = fixedItems ? fixedItems.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedQtyArr = fixedQty ? fixedQty.split('|').map(s => s.trim()).filter(Boolean) : [];
               const fixedList = fixedItemsArr.map((item, idx) => ({ name: item, qty: fixedQtyArr[idx] || '' }));
               const editableItems = items
                 ? items.split('|').map(item => item.trim()).filter(Boolean)
                 : [];
+              
+              // Parse instruments and their images
+              const instrumentsArr = instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [];
+              const instrumentImagesArr = instrumentImages ? instrumentImages.split('|').map(url => url.trim()).filter(Boolean) : [];
+              
+              // Create instrument-image mapping for this procedure
+              const instrumentImageMapping = {};
+              instrumentsArr.forEach((inst, idx) => {
+                instrumentImageMapping[inst] = instrumentImagesArr[idx] || instrumentImageMap[inst] || null;
+              });
+              
               const updatedProcedure = {
                 name: name.trim(),
                 items: editableItems,
                 fixedList,
-                instruments: instruments ? instruments.split('|').map(inst => inst.trim()).filter(Boolean) : [],
+                instruments: instrumentsArr,
+                instrumentImageMapping,
                 type: type ? type.trim() : 'Others',
               };
 
@@ -469,20 +510,85 @@ export default function ImplantChecklistApp() {
   const handleAddInstrument = (procedureName) => {
     const value = (newInstrumentInputs[procedureName] || '').trim();
     if (!value) return;
+    
+    // Get image URL from mapping if available
+    const imageUrl = instrumentImageMap[value] || null;
+    
     setProcedures(prev => prev.map(proc =>
       proc.name === procedureName && !proc.instruments.includes(value)
-        ? { ...proc, instruments: [...proc.instruments, value] }
+        ? { 
+            ...proc, 
+            instruments: [...proc.instruments, value],
+            instrumentImageMapping: { ...proc.instrumentImageMapping, [value]: imageUrl }
+          }
         : proc
     ));
     setActiveProcedures(prev => prev.map(proc =>
       proc.name === procedureName && !proc.instruments.includes(value)
-        ? { ...proc, instruments: [...proc.instruments, value] }
+        ? { 
+            ...proc, 
+            instruments: [...proc.instruments, value],
+            instrumentImageMapping: { ...proc.instrumentImageMapping, [value]: imageUrl }
+          }
         : proc
     ));
     setNewInstrumentInputs(prev => ({ ...prev, [procedureName]: '' }));
     setInstrumentSuggestions(prev => ({ ...prev, [procedureName]: [] })); // Clear suggestions on add
     setShowInstrumentSuggestions(prev => ({ ...prev, [procedureName]: false })); // Hide suggestions on add
     setHighlightedInstrumentIndex(prev => ({ ...prev, [procedureName]: -1 })); // Reset highlight on add
+  };
+
+  // Convert Google Drive URL to working format
+  const convertGoogleDriveUrl = (url) => {
+    if (!url) return null;
+    
+    // Extract file ID from various Google Drive URL formats
+    let fileId = null;
+    
+    // Format 1: https://drive.google.com/uc?export=view&id=FILE_ID
+    const ucMatch = url.match(/[?&]id=([^&]+)/);
+    if (ucMatch) {
+      fileId = ucMatch[1];
+    }
+    
+    // Format 2: https://drive.google.com/file/d/FILE_ID/view
+    const fileMatch = url.match(/\/file\/d\/([^\/]+)/);
+    if (fileMatch) {
+      fileId = fileMatch[1];
+    }
+    
+    if (!fileId) return url; // Return original if we can't parse
+    
+    // Try multiple working formats
+    return {
+      thumbnail: `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`,
+      preview: `https://drive.google.com/file/d/${fileId}/preview`,
+      uc: `https://drive.google.com/uc?export=view&id=${fileId}`,
+      original: url
+    };
+  };
+
+  // Handler to show instrument image
+  const handleShowInstrumentImage = (procedureName, instrumentName) => {
+    const procedure = activeProcedures.find(p => p.name === procedureName) || procedures.find(p => p.name === procedureName);
+    const imageUrl = procedure?.instrumentImageMapping?.[instrumentName] || instrumentImageMap[instrumentName] || null;
+    
+    if (imageUrl) {
+      // Convert to working URL format
+      const urlOptions = convertGoogleDriveUrl(imageUrl);
+      // Use thumbnail format first (most reliable for Google Drive)
+      const workingUrl = typeof urlOptions === 'object' ? urlOptions.thumbnail : imageUrl;
+      
+      setCurrentImageError(false); // Reset error state
+      setSelectedInstrumentImage({ 
+        instrument: instrumentName, 
+        imageUrl: workingUrl,
+        fallbackUrls: typeof urlOptions === 'object' ? urlOptions : null
+      });
+      setShowImageModal(true);
+    } else {
+      alert(`No image available for ${instrumentName}`);
+    }
   };
 
   // Handler for fixed item qty change
@@ -671,9 +777,49 @@ export default function ImplantChecklistApp() {
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
           }
         }
+        @media (max-width: 768px) {
+          .main-container {
+            padding: 12px !important;
+          }
+          .procedure-header-row {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+          }
+          .procedure-header-buttons {
+            flex-wrap: wrap !important;
+            gap: 4px !important;
+          }
+          .action-buttons-container {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .action-buttons-container button {
+            width: 100% !important;
+          }
+        }
         @media (max-width: 600px) {
           .main-container {
             padding: 8px !important;
+          }
+          .main-title {
+            font-size: 20px !important;
+            margin-bottom: 16px !important;
+          }
+          .hospital-dc-row {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .hospital-dc-row input {
+            width: 100% !important;
+          }
+          .search-material-row {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .search-material-row input,
+          .search-material-row select {
+            width: 100% !important;
           }
           .procedure-grid {
             grid-template-columns: 1fr !important;
@@ -683,58 +829,153 @@ export default function ImplantChecklistApp() {
             flex-direction: column !important;
             gap: 8px !important;
           }
+          .responsive-row button {
+            width: 100% !important;
+          }
           .responsive-btn, .responsive-input {
             width: 100% !important;
             min-width: 0 !important;
             box-sizing: border-box !important;
           }
           .responsive-modal {
-            max-width: 340px !important;
+            max-width: 96vw !important;
             width: 96vw !important;
-            padding: 6px 6px 16px 6px !important;
+            padding: 16px !important;
             min-width: 0 !important;
+            margin: 10px !important;
           }
           .responsive-table {
             display: block !important;
             overflow-x: auto !important;
             width: 100% !important;
+            font-size: 12px !important;
+          }
+          .procedure-card {
+            margin-top: 16px !important;
+            border-radius: 6px !important;
+          }
+          .procedure-card-content {
+            padding: 12px !important;
+          }
+          .procedure-card-header h2 {
+            font-size: 16px !important;
+          }
+          .item-row {
+            flex-wrap: wrap !important;
+            gap: 4px !important;
+          }
+          .item-size-inputs {
+            margin-left: 0 !important;
+            margin-top: 8px !important;
+            width: 100% !important;
+          }
+          .size-qty-row {
+            flex-wrap: wrap !important;
+            gap: 4px !important;
+          }
+          .size-qty-row input {
+            flex: 1 !important;
+            min-width: 60px !important;
+          }
+          .add-item-row,
+          .add-instrument-row {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .add-item-row input,
+          .add-instrument-row input {
+            width: 100% !important;
+          }
+          .add-item-row button,
+          .add-instrument-row button {
+            width: 100% !important;
+          }
+          .instrument-tags {
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+          }
+          .instrument-tag {
+            font-size: 12px !important;
+            padding: 4px 8px !important;
+          }
+          .summary-container {
+            padding: 12px !important;
+            font-size: 13px !important;
+          }
+          .print-preview-modal {
+            max-width: 98vw !important;
+            width: 98vw !important;
+            padding: 12px !important;
+            max-height: 95vh !important;
+          }
+          .print-preview-buttons {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .print-preview-buttons button {
+            width: 100% !important;
+          }
+          .image-modal-content {
+            max-width: 95vw !important;
+            width: 95vw !important;
+            padding: 12px !important;
+          }
+          .image-modal-header h3 {
+            font-size: 16px !important;
+          }
+          .image-container {
+            padding: 12px !important;
+          }
+          .image-container img {
+            max-height: 60vh !important;
+          }
+        }
+        @media (max-width: 400px) {
+          .main-container {
+            padding: 4px !important;
+          }
+          .main-title {
+            font-size: 18px !important;
+          }
+          .procedure-card-content {
+            padding: 8px !important;
           }
         }
       `}</style>
       {/* End responsive styles */}
 
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 28, fontWeight: "bold", textAlign: "center", width: "100%", marginBottom: 32 }}>SRR Ortho Implant DC Generator</h1>
+        <h1 className="main-title" style={{ fontSize: 28, fontWeight: "bold", textAlign: "center", width: "100%", marginBottom: 32 }}>SRR Ortho Implant DC Generator</h1>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="hospital-dc-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 8 }}>
         <input
           className="responsive-input"
           placeholder="Hospital Name"
           value={hospitalName}
           onChange={e => setHospitalName(e.target.value)}
-          style={{ width: 220, padding: 8, border: "1px solid #ccc", borderRadius: 4, textAlign: 'left' }}
+          style={{ width: 220, padding: 8, border: "1px solid #ccc", borderRadius: 4, textAlign: 'left', boxSizing: 'border-box' }}
         />
         <input
           className="responsive-input"
           placeholder="DC No"
           value={dcNo}
           onChange={e => setDcNo(e.target.value)}
-          style={{ width: 160, padding: 8, border: "1px solid #ccc", borderRadius: 4, textAlign: 'right' }}
+          style={{ width: 160, padding: 8, border: "1px solid #ccc", borderRadius: 4, textAlign: 'right', boxSizing: 'border-box' }}
         />
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div className="search-material-row" style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <input
           placeholder="Search Procedures"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ flex: 1, padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+          style={{ flex: 1, padding: 8, border: "1px solid #ccc", borderRadius: 4, boxSizing: 'border-box' }}
         />
         {/* Material Type Dropdown */}
         <select
           value={selectedMaterial}
           onChange={(e) => setSelectedMaterial(e.target.value)}
-          style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4 }}
+          style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4, boxSizing: 'border-box', minWidth: 100 }}
         >
           <option value="SS">SS</option>
           <option value="Titanium">Titanium</option>
@@ -795,11 +1036,11 @@ export default function ImplantChecklistApp() {
       )}
 
       {activeProcedures.map((procedure) => (
-        <div key={procedure.name} style={{ marginTop: 24, border: "1px solid #eee", borderRadius: 8, background: "#fafbfc" }}>
-          <div style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h2 style={{ fontSize: 20, fontWeight: 600 }}>{procedure.name} Items</h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div key={procedure.name} className="procedure-card" style={{ marginTop: 24, border: "1px solid #eee", borderRadius: 8, background: "#fafbfc" }}>
+          <div className="procedure-card-content" style={{ padding: 16 }}>
+            <div className="procedure-header-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: 'wrap', gap: 8 }}>
+              <h2 className="procedure-card-header" style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{procedure.name} Items</h2>
+              <div className="procedure-header-buttons" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={() => toggleCollapse(procedure.name)} style={{ background: "none", border: "none", cursor: "pointer" }}>
                   {collapsedProcedures[procedure.name] ? <ChevronDown /> : <ChevronUp />}
                 </button>
@@ -868,26 +1109,27 @@ export default function ImplantChecklistApp() {
 
                   return (
                     <div key={key} style={{ margin: "12px 0" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="item-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: 'wrap' }}>
                         <input
                           type="checkbox"
                           checked={isItemSelected}
                           onChange={() => handleItemChange(procedure.name, item)}
+                          style={{ flexShrink: 0 }}
                         />
-                        <span>{selectedMaterial === 'Titanium' ? 'Titanium ' + item.split('{')[0].trim() : item.split('{')[0].trim()}</span>
+                        <span style={{ flex: 1, minWidth: 120, wordBreak: 'break-word' }}>{selectedMaterial === 'Titanium' ? 'Titanium ' + item.split('{')[0].trim() : item.split('{')[0].trim()}</span>
 
                         {/* Show toggle button only if the item is selected */}
                         {isItemSelected && (
                           <button
                             style={{
-                              marginLeft: 8,
-                              padding: "2px 6px",
+                              padding: "4px 8px",
                               borderRadius: 4,
                               background: "#e0e7ff",
                               border: "none",
                               cursor: "pointer",
                               fontSize: 12,
                               lineHeight: 1,
+                              whiteSpace: 'nowrap'
                             }}
                             onClick={() => setShowItemDetails(prev => ({ ...prev, [key]: !prev[key] }))}
                             title={areDetailsVisible ? "Hide sizes/qtys" : "Show sizes/qtys"}
@@ -898,7 +1140,7 @@ export default function ImplantChecklistApp() {
 
                         {/* Show Add Size button only if the item is selected AND currently has no sizes */}
                         {isItemSelected && !itemHasSizes && (
-                           <button style={{ padding: "2px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer" }} onClick={() => handleAddSizeQty(key)}>
+                           <button style={{ padding: "4px 8px", borderRadius: 4, background: "#e0e7ff", border: "none", cursor: "pointer", whiteSpace: 'nowrap' }} onClick={() => handleAddSizeQty(key)}>
                             + Add Size
                           </button>
                         )}
@@ -906,9 +1148,9 @@ export default function ImplantChecklistApp() {
 
                       {/* Show item details (size/qty inputs) only if item is selected, has sizes, AND is toggled on */}
                       {isItemSelected && itemHasSizes && areDetailsVisible && (
-                        <div style={{ marginLeft: 32, marginTop: 4 }}>
+                        <div className="item-size-inputs" style={{ marginLeft: 32, marginTop: 4 }}>
                           {selectedItems[key].map((entry, index) => (
-                            <div key={index} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div key={index} className="size-qty-row" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                               <input
                                 ref={el => {
                                   sizeInputRefs.current[`${key}-${index}`] = el;
@@ -925,24 +1167,24 @@ export default function ImplantChecklistApp() {
                                 placeholder="Size"
                                 value={entry.size}
                                 onChange={(e) => handleSizeQtyChange(key, index, "size", e.target.value)}
-                                style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                style={{ width: 80, padding: 6, border: "1px solid #ccc", borderRadius: 4, boxSizing: 'border-box' }}
                               />
                               <input
                                 placeholder="Qty"
                                 type="number"
                                 value={entry.qty}
                                 onChange={(e) => handleSizeQtyChange(key, index, "qty", e.target.value)}
-                                style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4 }}
+                                style={{ width: 60, padding: 6, border: "1px solid #ccc", borderRadius: 4, boxSizing: 'border-box' }}
                               />
-                              <div style={{ display: "flex", gap: 4 }}>
+                              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                                 <button
-                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer" }}
+                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "1px solid #222", background: "#f1f5f9", color: "#222", cursor: "pointer", display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                   onClick={() => handleAddSizeQty(key)}
                                 >
                                   +
                                 </button>
                                 <button
-                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
+                                  style={{ borderRadius: "50%", padding: 4, width: 28, height: 28, border: "none", background: "#ef4444", color: "white", cursor: "pointer", display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                   onClick={() => handleDeleteSizeQty(key, index)}
                                 >
                                   <Trash2 style={{ width: 16, height: 16 }} />
@@ -956,13 +1198,13 @@ export default function ImplantChecklistApp() {
                   );
                 })}
                 {/* Add new item input */}
-                <div style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
+                <div className="add-item-row" style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
                   <input
                     type="text"
                     placeholder="Add item"
                     value={newItemInputs[procedure.name] || ''}
                     onChange={e => handleNewItemInputChange(procedure.name, e.target.value)}
-                    style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
+                    style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120, flex: 1, boxSizing: 'border-box' }}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         if (showItemSuggestions[procedure.name] && itemSuggestions[procedure.name]?.[highlightedItemIndex[procedure.name]] !== undefined) {
@@ -1049,37 +1291,58 @@ export default function ImplantChecklistApp() {
                         ↻
                       </button>
                     </div>
-                    <div style={{ color: "#555", fontStyle: "italic", display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {procedure.instruments.map((inst, idx) => (
-                        <span key={inst + idx} style={{ display: "flex", alignItems: "center", background: "#e0e7ff", borderRadius: 4, padding: "2px 8px", marginRight: 4, marginBottom: 4 }}>
-                          {inst}
-                          <button
-                            onClick={() => handleRemoveInstrument(procedure.name, inst)}
-                            style={{
-                              marginLeft: 6,
-                              background: "none",
-                              border: "none",
-                              color: "#ef4444",
-                              fontWeight: "bold",
-                              cursor: "pointer",
-                              fontSize: 14,
-                              lineHeight: 1
-                            }}
-                            title="Remove instrument"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                    <div className="instrument-tags" style={{ color: "#555", fontStyle: "italic", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {procedure.instruments.map((inst, idx) => {
+                        const hasImage = procedure.instrumentImageMapping?.[inst] || instrumentImageMap[inst];
+                        return (
+                          <span key={inst + idx} className="instrument-tag" style={{ display: "flex", alignItems: "center", background: "#e0e7ff", borderRadius: 4, padding: "4px 8px" }}>
+                            {inst}
+                            {hasImage && (
+                              <button
+                                onClick={() => handleShowInstrumentImage(procedure.name, inst)}
+                                style={{
+                                  marginLeft: 6,
+                                  background: "none",
+                                  border: "none",
+                                  color: "#2563eb",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  padding: 2
+                                }}
+                                title={`View image of ${inst}`}
+                              >
+                                <Info size={14} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleRemoveInstrument(procedure.name, inst)}
+                              style={{
+                                marginLeft: 6,
+                                background: "none",
+                                border: "none",
+                                color: "#ef4444",
+                                fontWeight: "bold",
+                                cursor: "pointer",
+                                fontSize: 14,
+                                lineHeight: 1
+                              }}
+                              title="Remove instrument"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                     {/* Add new instrument input */}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
+                    <div className="add-instrument-row" style={{ marginTop: 8, display: 'flex', gap: 8, position: 'relative' }}>
                       <input
                         type="text"
                         placeholder="Add instrument"
                         value={newInstrumentInputs[procedure.name] || ''}
                         onChange={e => handleNewInstrumentInputChange(procedure.name, e.target.value)}
-                        style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120 }}
+                        style={{ padding: 6, border: '1px solid #ccc', borderRadius: 4, minWidth: 120, flex: 1, boxSizing: 'border-box' }}
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             if (showInstrumentSuggestions[procedure.name] && instrumentSuggestions[procedure.name]?.[highlightedInstrumentIndex[procedure.name]] !== undefined) {
@@ -1153,9 +1416,10 @@ export default function ImplantChecklistApp() {
       ))}
 
       {activeProcedures.length > 0 && (
-        <div style={{ marginTop: 32, display: "flex", gap: 16 }}>
+        <div className="action-buttons-container" style={{ marginTop: 32, display: "flex", gap: 16, flexWrap: 'wrap' }}>
           <button
             onClick={handlePrint}
+            className="responsive-btn"
             style={{
               padding: "10px 24px",
               borderRadius: 6,
@@ -1167,8 +1431,10 @@ export default function ImplantChecklistApp() {
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               gap: 8,
-              transition: "background 0.2s"
+              transition: "background 0.2s",
+              boxSizing: 'border-box'
             }}
             onMouseOver={e => e.currentTarget.style.background = "#1e293b"}
             onMouseOut={e => e.currentTarget.style.background = "#000"}
@@ -1177,6 +1443,7 @@ export default function ImplantChecklistApp() {
           </button>
           <button
             onClick={handleSavePDF}
+            className="responsive-btn"
             style={{
               padding: "10px 24px",
               borderRadius: 6,
@@ -1185,17 +1452,24 @@ export default function ImplantChecklistApp() {
               border: "none",
               fontWeight: 500,
               fontSize: 16,
-              cursor: "pointer"
+              cursor: "pointer",
+              boxSizing: 'border-box'
             }}
           >
             Download PDF
           </button>
-          <button onClick={handleClearAll} style={{ padding: "10px 24px", borderRadius: 6, background: "#ef4444", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer" }}>Clear All</button>
+          <button 
+            onClick={handleClearAll} 
+            className="responsive-btn"
+            style={{ padding: "10px 24px", borderRadius: 6, background: "#ef4444", color: "white", border: "none", fontWeight: 500, fontSize: 16, cursor: "pointer", boxSizing: 'border-box' }}
+          >
+            Clear All
+          </button>
         </div>
       )}
 
       {activeProcedures.length > 0 && (
-        <div style={{ marginTop: 24, background: '#f8fafc', borderRadius: 8, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+        <div className="summary-container" style={{ marginTop: 24, background: '#f8fafc', borderRadius: 8, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
           <h3 style={{ fontWeight: 600, marginBottom: 12 }}>Summary</h3>
           <div>
             {activeProcedures.map(proc => {
@@ -1289,8 +1563,8 @@ export default function ImplantChecklistApp() {
 
       {/* Print Preview Modal */}
       {showPrintPreview && (
-        <div data-print-modal style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', borderRadius: 8, maxWidth: 900, width: '98vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
+        <div data-print-modal style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 10 }}>
+          <div className="print-preview-modal" style={{ background: 'white', borderRadius: 8, maxWidth: 900, width: '98vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 2px 16px rgba(0,0,0,0.25)', padding: 24, position: 'relative' }}>
             <h2 style={{ textAlign: 'center', fontWeight: 700, marginBottom: 16 }}>SUMMARY</h2>
             <div id="print-preview-content" ref={printRef}>
            
@@ -1418,10 +1692,134 @@ export default function ImplantChecklistApp() {
                 <div>Authorized Sign</div>
               </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
-              <button onClick={() => setShowPrintPreview(false)} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16 }}>Close</button>
-              <button onClick={doSavePDF} style={{ padding: '8px 20px', borderRadius: 4, background: '#2563eb', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Download PDF</button>
-              <button onClick={() => window.print()} style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16 }}>Print</button>
+            <div className="print-preview-buttons" style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowPrintPreview(false)} className="responsive-btn" style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #ccc', background: 'white', fontWeight: 500, fontSize: 16, boxSizing: 'border-box' }}>Close</button>
+              <button onClick={doSavePDF} className="responsive-btn" style={{ padding: '8px 20px', borderRadius: 4, background: '#2563eb', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16, boxSizing: 'border-box' }}>Download PDF</button>
+              <button onClick={() => window.print()} className="responsive-btn" style={{ padding: '8px 20px', borderRadius: 4, background: '#000', color: '#fff', border: 'none', fontWeight: 500, fontSize: 16, boxSizing: 'border-box' }}>Print</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Instrument Image Modal */}
+      {showImageModal && (
+        <div 
+          style={{ 
+            position: "fixed", 
+            inset: 0, 
+            background: "rgba(0,0,0,0.7)", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center", 
+            zIndex: 300,
+            padding: 20
+          }}
+          onClick={() => setShowImageModal(false)}
+        >
+          <div 
+            className="image-modal-content"
+            style={{ 
+              background: "white", 
+              borderRadius: 8, 
+              maxWidth: "90vw", 
+              maxHeight: "90vh", 
+              overflow: "auto",
+              position: "relative",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.3)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="image-modal-header" style={{ 
+              display: "flex", 
+              justifyContent: "space-between", 
+              alignItems: "center", 
+              padding: 16, 
+              borderBottom: "1px solid #eee" 
+            }}>
+              <h3 style={{ margin: 0, fontWeight: 600, fontSize: 18, wordBreak: 'break-word', flex: 1, paddingRight: 8 }}>
+                {selectedInstrumentImage.instrument}
+              </h3>
+              <button
+                onClick={() => setShowImageModal(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: 24,
+                  cursor: "pointer",
+                  color: "#666",
+                  padding: "0 8px",
+                  lineHeight: 1
+                }}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="image-container" style={{ padding: 20, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: 200 }}>
+              {currentImageError && selectedInstrumentImage.fallbackUrls && (
+                <div style={{ marginBottom: 12, padding: 8, background: "#fef3c7", borderRadius: 4, fontSize: 12 }}>
+                  Trying alternative URL format...
+                </div>
+              )}
+              <img
+                key={selectedInstrumentImage.imageUrl} // Force re-render on URL change
+                src={selectedInstrumentImage.imageUrl}
+                alt={selectedInstrumentImage.instrument}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "70vh",
+                  objectFit: "contain",
+                  borderRadius: 4,
+                  border: "1px solid #e5e7eb"
+                }}
+                onLoad={() => {
+                  console.log('Image loaded successfully:', selectedInstrumentImage.imageUrl);
+                  setCurrentImageError(false);
+                }}
+                onError={(e) => {
+                  console.error('Image failed to load:', selectedInstrumentImage.imageUrl);
+                  
+                  // Try fallback URLs if available
+                  if (selectedInstrumentImage.fallbackUrls && !currentImageError) {
+                    setCurrentImageError(true);
+                    // Try preview format
+                    if (selectedInstrumentImage.imageUrl === selectedInstrumentImage.fallbackUrls.thumbnail) {
+                      console.log('Trying preview format...');
+                      setSelectedInstrumentImage(prev => ({
+                        ...prev,
+                        imageUrl: selectedInstrumentImage.fallbackUrls.preview
+                      }));
+                      return;
+                    }
+                    // Try uc format
+                    if (selectedInstrumentImage.imageUrl === selectedInstrumentImage.fallbackUrls.preview) {
+                      console.log('Trying uc format...');
+                      setSelectedInstrumentImage(prev => ({
+                        ...prev,
+                        imageUrl: selectedInstrumentImage.fallbackUrls.uc
+                      }));
+                      return;
+                    }
+                  }
+                  
+                  // All formats failed - show error
+                  e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect fill='%23f3f4f6' width='400' height='300'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%239ca3af' font-family='sans-serif' font-size='14'%3EImage not available%3C/text%3E%3Ctext x='50%25' y='60%25' dominant-baseline='middle' text-anchor='middle' fill='%239ca3af' font-family='sans-serif' font-size='12'%3ECheck sharing settings%3C/text%3E%3C/svg%3E";
+                  e.target.style.border = "1px solid #e5e7eb";
+                }}
+              />
+              <div style={{ marginTop: 12, fontSize: 11, color: "#666", wordBreak: "break-all", maxWidth: "100%", textAlign: "center" }}>
+                <div style={{ marginBottom: 4 }}>URL: {selectedInstrumentImage.imageUrl}</div>
+                {selectedInstrumentImage.fallbackUrls && (
+                  <a 
+                    href={selectedInstrumentImage.fallbackUrls.original} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", textDecoration: "underline" }}
+                  >
+                    Open in new tab
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </div>

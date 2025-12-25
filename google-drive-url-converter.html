@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive URL Converter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.3s;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .result-group {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+        .result-item {
+            margin-bottom: 20px;
+        }
+        .result-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .result-url {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            word-break: break-all;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            position: relative;
+        }
+        .copy-btn {
+            background: #28a745;
+            margin-top: 8px;
+            padding: 8px 16px;
+            font-size: 12px;
+            width: auto;
+            display: inline-block;
+        }
+        .copy-btn:hover {
+            background: #218838;
+        }
+        .copy-btn.copied {
+            background: #6c757d;
+        }
+        .recommended {
+            border: 2px solid #28a745;
+            background: #f0fff4;
+        }
+        .recommended .result-label::after {
+            content: " (RECOMMENDED)";
+            color: #28a745;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        .error {
+            background: #fff5f5;
+            border: 2px solid #ef4444;
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+        .instructions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin-top: 30px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .instructions ol {
+            margin-left: 20px;
+        }
+        .instructions li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Google Drive URL Converter</h1>
+        <p class="subtitle">Convert Google Drive share links to direct image URLs</p>
+        
+        <div class="input-group">
+            <label for="driveUrl">Paste your Google Drive share link:</label>
+            <input 
+                type="text" 
+                id="driveUrl" 
+                placeholder="https://drive.google.com/file/d/1DXP1Vawl4-B_LPNc5WcWwWQno62BNRGE/view?usp=sharing"
+                value=""
+            />
+        </div>
+        
+        <button onclick="convertUrl()">Convert URL</button>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result-group" id="results" style="display: none;">
+            <div class="result-item recommended">
+                <div class="result-label">Thumbnail Format (Best for Web Apps)</div>
+                <div class="result-url" id="thumbnailUrl"></div>
+                <button class="copy-btn" onclick="copyToClipboard('thumbnailUrl')">Copy</button>
+            </div>
+            
+            <div class="result-item">
+                <div class="result-label">Preview Format</div>
+                <div class="result-url" id="previewUrl"></div>
+                <button class="copy-btn" onclick="copyToClipboard('previewUrl')">Copy</button>
+            </div>
+            
+            <div class="result-item">
+                <div class="result-label">UC Export Format</div>
+                <div class="result-url" id="ucUrl"></div>
+                <button class="copy-btn" onclick="copyToClipboard('ucUrl')">Copy</button>
+            </div>
+            
+            <div class="result-item">
+                <div class="result-label">Original File ID</div>
+                <div class="result-url" id="fileId"></div>
+                <button class="copy-btn" onclick="copyToClipboard('fileId')">Copy</button>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>📋 How to Use:</h3>
+            <ol>
+                <li>Copy your Google Drive share link (any format)</li>
+                <li>Paste it in the input field above</li>
+                <li>Click "Convert URL"</li>
+                <li>Copy the <strong>Thumbnail Format</strong> URL (recommended for web apps)</li>
+                <li>Paste it in your Google Sheet's "Instrument Images" column</li>
+            </ol>
+            <p style="margin-top: 10px; color: #666;">
+                <strong>Note:</strong> Make sure your Google Drive file is shared as "Anyone with the link can view"
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function extractFileId(url) {
+            if (!url) return null;
+            
+            // Format 1: https://drive.google.com/file/d/FILE_ID/view
+            const fileMatch = url.match(/\/file\/d\/([^\/\?]+)/);
+            if (fileMatch) {
+                return fileMatch[1];
+            }
+            
+            // Format 2: https://drive.google.com/uc?export=view&id=FILE_ID
+            const ucMatch = url.match(/[?&]id=([^&]+)/);
+            if (ucMatch) {
+                return ucMatch[1];
+            }
+            
+            // Format 3: https://drive.google.com/open?id=FILE_ID
+            const openMatch = url.match(/open\?id=([^&]+)/);
+            if (openMatch) {
+                return openMatch[1];
+            }
+            
+            return null;
+        }
+
+        function convertUrl() {
+            const input = document.getElementById('driveUrl');
+            const errorDiv = document.getElementById('error');
+            const resultsDiv = document.getElementById('results');
+            
+            const url = input.value.trim();
+            
+            if (!url) {
+                errorDiv.textContent = 'Please enter a Google Drive URL';
+                errorDiv.style.display = 'block';
+                resultsDiv.style.display = 'none';
+                return;
+            }
+            
+            const fileId = extractFileId(url);
+            
+            if (!fileId) {
+                errorDiv.textContent = 'Could not extract File ID from URL. Please check the URL format.';
+                errorDiv.style.display = 'block';
+                resultsDiv.style.display = 'none';
+                return;
+            }
+            
+            // Generate different URL formats
+            const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+            const previewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+            const ucUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+            
+            // Display results
+            document.getElementById('thumbnailUrl').textContent = thumbnailUrl;
+            document.getElementById('previewUrl').textContent = previewUrl;
+            document.getElementById('ucUrl').textContent = ucUrl;
+            document.getElementById('fileId').textContent = fileId;
+            
+            errorDiv.style.display = 'none';
+            resultsDiv.style.display = 'block';
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        // Allow Enter key to convert
+        document.getElementById('driveUrl').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                convertUrl();
+            }
+        });
+
+        // Auto-convert if URL is already in input
+        window.addEventListener('load', function() {
+            const url = document.getElementById('driveUrl').value;
+            if (url) {
+                convertUrl();
+            }
+        });
+    </script>
+</body>
+</html>
+
